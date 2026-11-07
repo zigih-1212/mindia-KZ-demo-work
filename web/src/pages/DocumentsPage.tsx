@@ -1,0 +1,352 @@
+import { useState, type FormEvent } from "react";
+import { api, HttpError } from "../services/api";
+import { useAsync } from "../lib/useAsync";
+import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
+import { Modal } from "../components/Modal";
+import { Badge, EmptyState, ErrorState, LoadingRows, PageHeader } from "../components/ui";
+import {
+  DOCUMENT_STATUS_LABELS,
+  DOCUMENT_TYPE_LABELS,
+  documentStatusTone,
+  formatDate,
+  formatMoney,
+  majorToMinor,
+  todayInput,
+} from "../lib/format";
+import type { DocumentStatus, DocumentType, Project } from "../types";
+
+const STATUS_FILTERS: { value: DocumentStatus | "all"; label: string }[] = [
+  { value: "all", label: "Все" },
+  { value: "draft", label: "Черновик" },
+  { value: "submitted", label: "На проверке" },
+  { value: "approved", label: "Утверждён" },
+  { value: "rejected", label: "Отклонён" },
+];
+
+export function DocumentsPage() {
+  const { user } = useAuth();
+  const { notify } = useToast();
+  const [status, setStatus] = useState<DocumentStatus | "all">("all");
+  const [type, setType] = useState<DocumentType | "all">("all");
+  const [creating, setCreating] = useState(false);
+  const canApprove = user?.role === "admin" || user?.role === "manager";
+
+  const { data, loading, error, reload } = useAsync(
+    () =>
+      api.listDocuments({
+        status: status === "all" ? undefined : status,
+        type: type === "all" ? undefined : type,
+        limit: 50,
+      }),
+    [status, type],
+  );
+
+  const transition = async (id: string, to: DocumentStatus, version: number) => {
+    try {
+      await api.transitionDocument(id, to, version);
+      notify(`Документ: ${DOCUMENT_STATUS_LABELS[to]}`, "success");
+      reload();
+    } catch (err) {
+      notify(err instanceof HttpError ? err.message : "Не удалось изменить статус", "error");
+    }
+  };
+
+  return (
+    <div>
+      <PageHeader
+        title="Исполнительная документация"
+        subtitle="Акты КС-2, справки КС-3, счета и акты по объектам"
+        actions={
+          <button className="btn-primary" onClick={() => setCreating(true)}>
+            + Новый документ
+          </button>
+        }
+      />
+
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap gap-1.5">
+          {STATUS_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              onClick={() => setStatus(f.value)}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                status === f.value
+                  ? "bg-brand-600 text-white"
+                  : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <select
+          className="input lg:max-w-[16rem]"
+          value={type}
+          onChange={(e) => setType(e.target.value as DocumentType | "all")}
+        >
+          <option value="all">Все типы</option>
+          {(Object.keys(DOCUMENT_TYPE_LABELS) as DocumentType[]).map((t) => (
+            <option key={t} value={t}>
+              {DOCUMENT_TYPE_LABELS[t]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {loading && !data ? (
+        <LoadingRows rows={6} />
+      ) : error ? (
+        <ErrorState message={error} onRetry={reload} />
+      ) : !data || data.items.length === 0 ? (
+        <EmptyState title="Документы не найдены" description="Измените фильтры." />
+      ) : (
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="th">Тип</th>
+                  <th className="th">Номер</th>
+                  <th className="th">Название</th>
+                  <th className="th">Объект</th>
+                  <th className="th">Период</th>
+                  <th className="th">Сумма</th>
+                  <th className="th">Статус</th>
+                  <th className="th">Действия</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {data.items.map((d) => (
+                  <tr key={d.id} className="hover:bg-slate-50">
+                    <td className="td">
+                      <Badge tone="brand">{DOCUMENT_TYPE_LABELS[d.type]}</Badge>
+                    </td>
+                    <td className="td font-mono text-xs text-slate-500">{d.number}</td>
+                    <td className="td font-medium text-slate-800">{d.title}</td>
+                    <td className="td text-slate-600">{d.projectName || "—"}</td>
+                    <td className="td whitespace-nowrap text-xs text-slate-500">
+                      {formatDate(d.periodFrom)} — {formatDate(d.periodTo)}
+                    </td>
+                    <td className="td whitespace-nowrap">{formatMoney(d.amountMinor)}</td>
+                    <td className="td">
+                      <Badge tone={documentStatusTone(d.status)}>
+                        {DOCUMENT_STATUS_LABELS[d.status]}
+                      </Badge>
+                    </td>
+                    <td className="td">
+                      <div className="flex flex-wrap gap-1">
+                        {d.status === "draft" ? (
+                          <button
+                            className="btn-ghost !px-2 !py-1 text-xs"
+                            onClick={() => transition(d.id, "submitted", d.version)}
+                          >
+                            На проверку
+                          </button>
+                        ) : null}
+                        {d.status === "submitted" && canApprove ? (
+                          <>
+                            <button
+                              className="btn-ghost !px-2 !py-1 text-xs text-emerald-700"
+                              onClick={() => transition(d.id, "approved", d.version)}
+                            >
+                              Утвердить
+                            </button>
+                            <button
+                              className="btn-ghost !px-2 !py-1 text-xs text-red-700"
+                              onClick={() => transition(d.id, "rejected", d.version)}
+                            >
+                              Отклонить
+                            </button>
+                          </>
+                        ) : null}
+                        {d.status === "rejected" ? (
+                          <button
+                            className="btn-ghost !px-2 !py-1 text-xs"
+                            onClick={() => transition(d.id, "draft", d.version)}
+                          >
+                            В черновик
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {creating ? (
+        <DocumentFormModal
+          onClose={() => setCreating(false)}
+          onSaved={() => {
+            setCreating(false);
+            reload();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function DocumentFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const { notify } = useToast();
+  const projects = useAsync(() => api.listProjects({ limit: 100 }), []);
+  const [form, setForm] = useState({
+    projectId: "",
+    type: "ks2" as DocumentType,
+    number: "",
+    title: "",
+    periodFrom: todayInput(),
+    periodTo: todayInput(),
+    amount: "",
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const submit = async (ev: FormEvent) => {
+    ev.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await api.createDocument({
+        projectId: form.projectId,
+        type: form.type,
+        number: form.number.trim(),
+        title: form.title.trim(),
+        periodFrom: form.periodFrom,
+        periodTo: form.periodTo,
+        amountMinor: majorToMinor(form.amount),
+      });
+      notify("Документ создан", "success");
+      onSaved();
+    } catch (err) {
+      const msg = err instanceof HttpError ? err.message : "Не удалось создать документ.";
+      setError(msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const projectList: Project[] = projects.data?.items ?? [];
+
+  return (
+    <Modal
+      title="Новый документ"
+      onClose={onClose}
+      width="max-w-xl"
+      footer={
+        <>
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            Отмена
+          </button>
+          <button type="submit" form="doc-form" className="btn-primary" disabled={busy}>
+            {busy ? "Сохранение…" : "Создать"}
+          </button>
+        </>
+      }
+    >
+      <form id="doc-form" onSubmit={submit} className="space-y-4" noValidate>
+        {error ? (
+          <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </div>
+        ) : null}
+
+        <div>
+          <label className="label" htmlFor="projectId">
+            Объект *
+          </label>
+          <select
+            id="projectId"
+            className="input"
+            value={form.projectId}
+            onChange={set("projectId")}
+            required
+          >
+            <option value="">— выберите объект —</option>
+            {projectList.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.code} · {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label className="label" htmlFor="type">
+              Тип
+            </label>
+            <select id="type" className="input" value={form.type} onChange={set("type")}>
+              {(Object.keys(DOCUMENT_TYPE_LABELS) as DocumentType[]).map((t) => (
+                <option key={t} value={t}>
+                  {DOCUMENT_TYPE_LABELS[t]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="number">
+              Номер *
+            </label>
+            <input id="number" className="input" value={form.number} onChange={set("number")} required />
+          </div>
+        </div>
+
+        <div>
+          <label className="label" htmlFor="title">
+            Название *
+          </label>
+          <input id="title" className="input" value={form.title} onChange={set("title")} required />
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div>
+            <label className="label" htmlFor="periodFrom">
+              Период с
+            </label>
+            <input
+              id="periodFrom"
+              type="date"
+              className="input"
+              value={form.periodFrom}
+              onChange={set("periodFrom")}
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="periodTo">
+              Период по
+            </label>
+            <input
+              id="periodTo"
+              type="date"
+              className="input"
+              value={form.periodTo}
+              onChange={set("periodTo")}
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="amount">
+              Сумма, ₸
+            </label>
+            <input
+              id="amount"
+              type="number"
+              min="0"
+              step="0.01"
+              className="input"
+              value={form.amount}
+              onChange={set("amount")}
+            />
+          </div>
+        </div>
+      </form>
+    </Modal>
+  );
+}

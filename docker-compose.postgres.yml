@@ -1,0 +1,39 @@
+# Оверрайд для production-подобного запуска с PostgreSQL.
+#
+# Запуск:
+#     docker compose -f docker-compose.yml -f docker-compose.postgres.yml up --build
+#   или короче, если в docker-compose.yml объявлен профиль:
+#     docker compose --profile postgres up --build
+#
+# Схема и SQL рассчитаны и на SQLite, и на PostgreSQL; драйвер выбирается
+# переменной DB_DRIVER. Миграции накатываются автоматически при старте API.
+
+services:
+  api:
+    environment:
+      DB_DRIVER: "postgres"
+      DATABASE_URL: "postgres://mindia:mindia@db:5432/mindia?sslmode=disable"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    container_name: mindia-db
+    environment:
+      POSTGRES_USER: "mindia"
+      POSTGRES_PASSWORD: "mindia"
+      POSTGRES_DB: "mindia"
+    volumes:
+      - mindia-pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mindia -d mindia"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  mindia-pgdata:

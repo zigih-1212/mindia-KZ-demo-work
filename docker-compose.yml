@@ -1,0 +1,54 @@
+# СтройКонтроль — локальный полный стек в Docker.
+#
+# Вариант по умолчанию (лёгкий, без внешней БД) — SQLite:
+#     docker compose up --build
+#     → фронтенд http://localhost:8088, API http://localhost:8080
+#
+# Вариант как в production — PostgreSQL:
+#     docker compose --profile postgres up --build
+#     (использует docker-compose.postgres.yml через override)
+#
+# Демо-аккаунты: admin@mindia.kz / manager@mindia.kz / estimator@mindia.kz /
+# foreman@mindia.kz / customer@mindia.kz — пароль у всех demo1234.
+
+services:
+  api:
+    build:
+      context: ./backend
+    image: mindia-kz-api:local
+    container_name: mindia-api
+    environment:
+      APP_ADDR: ":8080"
+      APP_ENV: "production"
+      DB_DRIVER: "sqlite"
+      DATA_DIR: "/data"
+      # Обязательный в production: минимум 16 символов. Замените в реальном деплое.
+      JWT_SECRET: "change-me-demo-secret-please-32chars"
+      FRONTEND_ORIGINS: "http://localhost:8088,http://localhost:5173"
+      # AI-ассистент. Без ключа автоматически уходит в офлайн-режим.
+      AI_ENABLED: "${AI_ENABLED:-false}"
+      AI_BASE_URL: "${AI_BASE_URL:-}"
+      AI_API_KEY: "${AI_API_KEY:-}"
+      AI_MODEL: "${AI_MODEL:-deepseek-v4.1}"
+      AI_BUDGET_TOKENS: "500000"
+    volumes:
+      - mindia-data:/data
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      args:
+        VITE_API_BASE_URL: "http://localhost:8080"
+    image: mindia-kz-web:local
+    container_name: mindia-web
+    depends_on:
+      - api
+    ports:
+      - "8088:80"
+    restart: unless-stopped
+
+volumes:
+  mindia-data:

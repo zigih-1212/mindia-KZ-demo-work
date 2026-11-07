@@ -1,0 +1,37 @@
+# --- РџРµСЂРµРјРµРЅРЅС‹Рµ РѕРєСЂСѓР¶РµРЅРёСЏ Рё СЃРµРєСЂРµС‚С‹ ---
+.env
+.env.local
+.env.*.local
+*.env
+
+# --- Go ---
+backend/mindia-server
+backend/mindia-server.exe
+backend/*.exe
+backend/data/
+backend/*.db
+backend/*.db-shm
+backend/*.db-wal
+backend/coverage.out
+backend/tmp/
+
+# --- Node / С„СЂРѕРЅС‚РµРЅРґ ---
+web/node_modules/
+web/dist/
+web/.vite/
+web/coverage/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Р РµРґР°РєС‚РѕСЂС‹ Рё РћРЎ ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Сгенерированные tsc build-артефакты конфигов ---
+web/vite.config.js
+web/vite.config.d.ts

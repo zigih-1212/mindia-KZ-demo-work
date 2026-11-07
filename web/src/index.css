@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900 font-sans antialiased;
+  }
+
+  /* Видимый фокус для клавиатурной навигации (WCAG 2.4.7). */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white;
+  }
+
+  ::selection {
+    @apply bg-brand-200 text-brand-900;
+  }
+}
+
+@layer components {
+  /* Переиспользуемые примитивы интерфейса — единая спецификация состояний. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2
+      text-sm font-medium transition-colors focus-visible:ring-2
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800;
+  }
+
+  .btn-secondary {
+    @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 active:bg-slate-100;
+  }
+
+  .btn-danger {
+    @apply btn border border-red-200 bg-white text-red-700 hover:bg-red-50;
+  }
+
+  .btn-ghost {
+    @apply btn text-slate-600 hover:bg-slate-100;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm
+      text-slate-900 placeholder:text-slate-400 focus:border-brand-500
+      focus:outline-none focus:ring-2 focus:ring-brand-500/30;
+  }
+
+  .label {
+    @apply mb-1 block text-sm font-medium text-slate-700;
+  }
+
+  .card {
+    @apply rounded-xl border border-slate-200 bg-white shadow-card;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  .th {
+    @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500;
+  }
+
+  .td {
+    @apply px-4 py-3 text-sm text-slate-700;
+  }
+
+  .skeleton {
+    @apply animate-pulse rounded bg-slate-200;
+  }
+}

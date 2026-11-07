@@ -1,0 +1,14 @@
+# Артефакты сборки и локальные данные, которые не должны попадать в образ.
+.git
+.gitignore
+*.md
+docker-compose*.yml
+.env
+.env.*
+data/
+*.db
+*.db-shm
+*.db-wal
+mindia-server
+*.exe
+*_test.go
