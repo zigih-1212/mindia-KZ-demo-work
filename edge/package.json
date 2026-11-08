@@ -1,0 +1,25 @@
+{
+  "name": "mindia-kz-edge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:migrate:local": "wrangler d1 migrations apply mindia-kz --local",
+    "db:migrate": "wrangler d1 migrations apply mindia-kz --remote",
+    "db:seed:local": "wrangler d1 execute mindia-kz --local --file=./src/db/seed.sql",
+    "db:seed": "wrangler d1 execute mindia-kz --remote --file=./src/db/seed.sql"
+  },
+  "dependencies": {
+    "hono": "^4.5.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261104.1",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "wrangler": "^4.152.0"
+  }
+}

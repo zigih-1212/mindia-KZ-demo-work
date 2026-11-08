@@ -1,0 +1,29 @@
+# Edge-двойник API: Cloudflare Worker + D1. Один Worker отдаёт и SPA (статика
+# из ../web/dist копируется в ./dist), и API (/api/v1/*) — один домен.
+# Go-бэкенд в backend/ остаётся эталонной реализацией; этот Worker повторяет
+# тот же HTTP-контракт на краю сети (edge twin).
+name = "mindia-kz-edge"
+main = "src/index.ts"
+compatibility_date = "2026-10-31"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "mindia-kz"
+database_id = "5bfee5ea-5819-45fc-9a5f-0b4b92efe1c1"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+# SPA: все пути, не попавшие в статику, отдают index.html (глубокие ссылки).
+not_found_handling = "single-page-application"
+# /api/* и /healthz всегда идут в Worker, остальная статика — напрямую из CDN.
+run_worker_first = ["/api/*", "/healthz"]
+
+[vars]
+ENVIRONMENT = "production"
+
+# JWT_SECRET задаётся секретом: npx --yes wrangler@4 secret put JWT_SECRET

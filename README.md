@@ -8,6 +8,9 @@
 (КС-2, КС-3, акты, счета), нормативной базы и **встроенного AI-ассистента**,
 который работает только с данными платформы.
 
+**Живое демо:** https://mindia-kz-edge.dvybornyh332.workers.dev
+(SPA и API на одном Worker'е; ассистент — в офлайн-режиме).
+
 **Демо-аккаунты** (пароль у всех — `demo1234`):
 
 | Email | Роль | Кто это |
@@ -84,6 +87,16 @@ mindia-KZ-demo-work/
 │       ├── services/api.ts       # типизированный клиент API
 │       ├── lib/                  # форматирование денег/дат, useAsync
 │       └── types.ts              # типы ответов API
+├── edge/                         # Cloudflare Worker + D1 — edge-двойник API
+│   ├── migrations/               # та же схема (0001_init.sql) для D1
+│   ├── src/
+│   │   ├── index.ts              # Hono-роутер, тот же HTTP-контракт, что у Go
+│   │   ├── repositories/         # D1-запросы (те же правила блокировок/конфликтов)
+│   │   ├── services/             # матрицы переходов, анализ смет
+│   │   ├── ai/offline.ts         # детерминированный офлайн-ассистент + бюджет 500k
+│   │   ├── lib/                  # PBKDF2 + JWT (Web Crypto), ошибки, утилиты
+│   │   └── db/seed.sql           # те же демо-данные
+│   └── wrangler.toml             # [assets]: SPA и API на одном домене Worker'а
 ├── docs/                        # скриншоты (опционально)
 ├── docker-compose.yml           # api (SQLite) + web
 ├── docker-compose.postgres.yml  # override: PostgreSQL
@@ -152,11 +165,39 @@ cd web
 npm run typecheck            # tsc --noEmit
 npm test                     # vitest
 npm run build                # прод-сборка
+
+# --- Edge-двойник (Cloudflare Worker) ---
+cd edge
+npm run typecheck            # tsc --noEmit
+npm test                     # vitest: PBKDF2/JWT, матрицы переходов, анализ, AI-роутинг
 ```
 
 ---
 
 ## Деплой
+
+**Живое демо (Cloudflare, один домен):** https://mindia-kz-edge.dvybornyh332.workers.dev
+
+Вариант 1 — edge-двойник на Cloudflare Workers (SPA и API на одном домене,
+без контейнеров и без отдельного хостинга):
+
+```bash
+cd edge
+npx --yes wrangler@4 d1 migrations apply mindia-kz --remote
+npx --yes wrangler@4 d1 execute mindia-kz --remote --file=src/db/seed.sql
+cd ../web && npm run build && cd ../edge
+cp -r ../web/dist ./dist       # Windows: Copy-Item -Recurse web/dist edge/dist
+npx --yes wrangler@4 secret put JWT_SECRET
+npx --yes wrangler@4 deploy
+```
+
+Раздача статики настроена в `edge/wrangler.toml` через `[assets]`
+(`not_found_handling = "single-page-application"`, `run_worker_first` для
+`/api/*` и `/healthz`) — Worker обслуживает и SPA, и API на одном origin,
+CORS не нужен. Ассистент в edge-варианте работает в детерминированном
+офлайн-режиме (тот же контракт ответов, без внешнего LLM).
+
+Вариант 2 — эталонный Go-бэкенд на контейнерном хостинге:
 
 - **Фронтенд** — Cloudflare Pages: `cd web && npm run build`, каталог `dist/`,
   переменная сборки `VITE_API_BASE_URL` указывает на адрес API.
