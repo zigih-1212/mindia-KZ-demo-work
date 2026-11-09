@@ -6,6 +6,8 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { Badge, ErrorState, LoadingRows, PageHeader, ProgressBar } from "../components/ui";
 import { ProjectFormModal } from "../components/ProjectFormModal";
+import { SectionTabs, type TabDef, useTab } from "../components/Tabs";
+import { canEditDocuments, canEditEstimates, canManageProjects } from "../lib/rbac";
 import {
   DOCUMENT_STATUS_LABELS,
   DOCUMENT_TYPE_LABELS,
@@ -21,19 +23,30 @@ import {
   utilizationPercent,
 } from "../lib/format";
 
+type Tab = "stages" | "estimates" | "documents";
+
 export function ProjectDetailPage() {
   const { id = "" } = useParams();
   const { user } = useAuth();
   const { notify } = useToast();
   const navigate = useNavigate();
-  const canManage = user?.role === "admin" || user?.role === "manager";
+  const role = user?.role;
+  const canManage = canManageProjects(role);
+  const canNewEstimate = canEditEstimates(role);
+  const canNewDocument = canEditDocuments(role);
   const [editing, setEditing] = useState(false);
-  const [tab, setTab] = useState<"stages" | "estimates" | "documents">("stages");
+  const tab = useTab<Tab>("stages");
 
   const project = useAsync(() => api.getProject(id), [id]);
   const stages = useAsync(() => api.projectStages(id), [id]);
   const estimates = useAsync(() => api.listEstimates({ projectId: id, limit: 50 }), [id]);
   const documents = useAsync(() => api.listDocuments({ projectId: id, limit: 50 }), [id]);
+
+  const tabs: TabDef<Tab>[] = [
+    { id: "stages", label: "Этапы", count: stages.data?.items.length ?? 0 },
+    { id: "estimates", label: "Сметы", count: estimates.data?.total ?? 0 },
+    { id: "documents", label: "Документы", count: documents.data?.total ?? 0 },
+  ];
 
   const onDelete = async () => {
     if (!confirm("Удалить объект? Действие необратимо.")) return;
@@ -55,82 +68,62 @@ export function ProjectDetailPage() {
 
   return (
     <div>
-      <Link to="/projects" className="mb-3 inline-block text-sm text-slate-500 hover:text-brand-600">
-        ← К списку объектов
-      </Link>
+      <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
+        <Link to="/projects" className="text-slate-500 hover:text-brand-600">← К списку объектов</Link>
+        <span className="text-slate-300">·</span>
+        <Link to={`/estimates?projectId=${id}`} className="text-slate-500 hover:text-brand-600">Сметы объекта</Link>
+        <span className="text-slate-300">·</span>
+        <Link to={`/documents?projectId=${id}`} className="text-slate-500 hover:text-brand-600">Документы объекта</Link>
+      </div>
 
       <PageHeader
         title={p.name}
         subtitle={`${p.code} · ${p.address || "адрес не указан"}`}
         actions={
-          canManage ? (
-            <div className="flex gap-2">
-              <button className="btn-secondary" onClick={() => setEditing(true)}>
-                Редактировать
-              </button>
-              <button className="btn-danger" onClick={onDelete}>
-                Удалить
-              </button>
-            </div>
-          ) : null
+          <div className="flex flex-wrap gap-2">
+            {canNewEstimate ? (
+              <Link className="btn-secondary" to={`/estimates?projectId=${id}`}>К сметам</Link>
+            ) : null}
+            {canNewDocument ? (
+              <Link className="btn-secondary" to={`/documents?projectId=${id}`}>К документам</Link>
+            ) : null}
+            {canManage ? (
+              <>
+                <button className="btn-secondary" onClick={() => setEditing(true)}>Редактировать</button>
+                <button className="btn-danger" onClick={onDelete}>Удалить</button>
+              </>
+            ) : null}
+          </div>
         }
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="card p-4">
           <div className="text-xs text-slate-500">Статус</div>
-          <div className="mt-1">
-            <Badge tone={projectStatusTone(p.status)}>{PROJECT_STATUS_LABELS[p.status]}</Badge>
-          </div>
+          <div className="mt-1"><Badge tone={projectStatusTone(p.status)}>{PROJECT_STATUS_LABELS[p.status]}</Badge></div>
         </div>
         <div className="card p-4">
           <div className="text-xs text-slate-500">Бюджет / Освоено</div>
-          <div className="mt-1 text-sm font-medium text-slate-800">
-            {formatMoneyShort(p.spentMinor)} / {formatMoneyShort(p.budgetMinor)}
-          </div>
-          <div className="mt-2">
-            <ProgressBar value={used} tone={used > 90 ? "warn" : "brand"} />
-          </div>
+          <div className="mt-1 text-sm font-medium text-slate-800">{formatMoneyShort(p.spentMinor)} / {formatMoneyShort(p.budgetMinor)}</div>
+          <div className="mt-2"><ProgressBar value={used} tone={used > 90 ? "warn" : "brand"} /></div>
         </div>
         <div className="card p-4">
           <div className="text-xs text-slate-500">Заказчик</div>
           <div className="mt-1 text-sm font-medium text-slate-800">{p.customer || "—"}</div>
-          <div className="mt-1 text-xs text-slate-500">
-            Руководитель: {p.managerName || "не назначен"}
-          </div>
+          <div className="mt-1 text-xs text-slate-500">Руководитель: {p.managerName || "не назначен"}</div>
         </div>
         <div className="card p-4">
           <div className="text-xs text-slate-500">Сроки</div>
-          <div className="mt-1 text-sm font-medium text-slate-800">
-            {formatDate(p.startDate)} — {formatDate(p.plannedEndDate)}
-          </div>
+          <div className="mt-1 text-sm font-medium text-slate-800">{formatDate(p.startDate)} — {formatDate(p.plannedEndDate)}</div>
           <div className="mt-1 text-xs text-slate-500">Готовность {p.progressPercent}%</div>
         </div>
       </div>
 
-      <div className="mt-6 flex gap-1 border-b border-slate-200">
-        {(
-          [
-            ["stages", `Этапы (${stages.data?.items.length ?? 0})`],
-            ["estimates", `Сметы (${estimates.data?.total ?? 0})`],
-            ["documents", `Документы (${documents.data?.total ?? 0})`],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
-              tab === key
-                ? "border-brand-600 text-brand-600"
-                : "border-transparent text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="mt-6">
+        <SectionTabs tabs={tabs} defaultTab="stages" />
       </div>
 
-      <div className="mt-4">
+      <div className="mt-2">
         {tab === "stages" ? (
           stages.loading ? (
             <LoadingRows rows={4} />
@@ -154,27 +147,23 @@ export function ProjectDetailPage() {
                       <tr key={s.id}>
                         <td className="td text-slate-400">{s.sequence}</td>
                         <td className="td font-medium text-slate-800">{s.name}</td>
-                        <td className="td">
-                          <Badge tone="slate">{STAGE_STATUS_LABELS[s.status]}</Badge>
-                        </td>
-                        <td className="td whitespace-nowrap text-slate-600">
-                          {formatDate(s.plannedStart)} — {formatDate(s.plannedEnd)}
-                        </td>
+                        <td className="td"><Badge tone="slate">{STAGE_STATUS_LABELS[s.status]}</Badge></td>
+                        <td className="td whitespace-nowrap text-slate-600">{formatDate(s.plannedStart)} — {formatDate(s.plannedEnd)}</td>
                         <td className="td whitespace-nowrap">{formatMoneyShort(s.plannedMinor)}</td>
                         <td className="td whitespace-nowrap">{formatMoneyShort(s.actualMinor)}</td>
                         <td className="td">
                           <div className="flex items-center gap-2">
                             <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-200">
-                              <div
-                                className="h-full rounded-full bg-brand-500"
-                                style={{ width: `${s.progressPercent}%` }}
-                              />
+                              <div className="h-full rounded-full bg-brand-500" style={{ width: `${s.progressPercent}%` }} />
                             </div>
                             <span className="text-xs text-slate-500">{s.progressPercent}%</span>
                           </div>
                         </td>
                       </tr>
                     ))}
+                    {(stages.data?.items.length ?? 0) === 0 ? (
+                      <tr><td className="td text-slate-500" colSpan={7}>Этапов пока нет</td></tr>
+                    ) : null}
                   </tbody>
                 </table>
               </div>
@@ -187,28 +176,26 @@ export function ProjectDetailPage() {
             <LoadingRows rows={4} />
           ) : (
             <div className="card divide-y divide-slate-100">
+              <div className="flex items-center justify-between px-4 py-3">
+                <span className="text-sm text-slate-600">Сметы по объекту</span>
+                <div className="flex gap-2">
+                  <Link className="text-sm text-brand-600 hover:underline" to={`/estimates?projectId=${id}`}>Открыть в разделе «Сметы» →</Link>
+                </div>
+              </div>
               {(estimates.data?.items ?? []).map((e) => (
-                <Link
-                  key={e.id}
-                  to={`/estimates/${e.id}`}
-                  className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-slate-50"
-                >
+                <Link key={e.id} to={`/estimates/${e.id}?from=project&projectId=${id}`} className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-slate-50">
                   <div>
                     <div className="font-mono text-xs text-slate-500">{e.number}</div>
                     <div className="text-sm font-medium text-slate-800">{e.name}</div>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-sm text-slate-700">{formatMoney(e.totalMinor)}</span>
-                    <Badge tone={estimateStatusTone(e.status)}>
-                      {ESTIMATE_STATUS_LABELS[e.status]}
-                    </Badge>
+                    <Badge tone={estimateStatusTone(e.status)}>{ESTIMATE_STATUS_LABELS[e.status]}</Badge>
                   </div>
                 </Link>
               ))}
               {(estimates.data?.items.length ?? 0) === 0 ? (
-                <div className="px-4 py-6 text-center text-sm text-slate-500">
-                  Смет по объекту нет
-                </div>
+                <div className="px-4 py-6 text-center text-sm text-slate-500">Смет по объекту нет</div>
               ) : null}
             </div>
           )
@@ -219,29 +206,24 @@ export function ProjectDetailPage() {
             <LoadingRows rows={4} />
           ) : (
             <div className="card divide-y divide-slate-100">
+              <div className="flex items-center justify-between px-4 py-3">
+                <span className="text-sm text-slate-600">Документы по объекту</span>
+                <Link className="text-sm text-brand-600 hover:underline" to={`/documents?projectId=${id}`}>Открыть в разделе «Документы» →</Link>
+              </div>
               {(documents.data?.items ?? []).map((d) => (
-                <div
-                  key={d.id}
-                  className="flex items-center justify-between gap-4 px-4 py-3"
-                >
+                <div key={d.id} className="flex items-center justify-between gap-4 px-4 py-3">
                   <div>
-                    <div className="font-mono text-xs text-slate-500">
-                      {DOCUMENT_TYPE_LABELS[d.type]} {d.number}
-                    </div>
+                    <div className="font-mono text-xs text-slate-500">{DOCUMENT_TYPE_LABELS[d.type]} {d.number}</div>
                     <div className="text-sm font-medium text-slate-800">{d.title}</div>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-sm text-slate-700">{formatMoney(d.amountMinor)}</span>
-                    <Badge tone={documentStatusTone(d.status)}>
-                      {DOCUMENT_STATUS_LABELS[d.status]}
-                    </Badge>
+                    <Badge tone={documentStatusTone(d.status)}>{DOCUMENT_STATUS_LABELS[d.status]}</Badge>
                   </div>
                 </div>
               ))}
               {(documents.data?.items.length ?? 0) === 0 ? (
-                <div className="px-4 py-6 text-center text-sm text-slate-500">
-                  Документов по объекту нет
-                </div>
+                <div className="px-4 py-6 text-center text-sm text-slate-500">Документов по объекту нет</div>
               ) : null}
             </div>
           )
