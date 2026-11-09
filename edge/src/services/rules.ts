@@ -1,12 +1,64 @@
 // Бизнес-правила, зеркалящие backend/internal/service (Go — эталон):
-// матрицы переходов статусов, права согласования, нормализация позиций сметы.
+// матрицы переходов статусов, права/роли, нормализация позиций сметы.
 
-import { ValidationError } from "../lib/errors";
+import { ForbiddenError, ValidationError } from "../lib/errors";
 import type { EstimateItem, EstimateStatus, DocumentStatus, Role } from "../types";
 
-// CanApprove — согласование (approve/reject) доступно только этим ролям.
+// --- RBAC (5 ролей, явные возможности) ---
+// admin     — полный доступ.
+// manager   — управление проектами, сметы/документы, согласование.
+// estimator — сметы (создание/правка/отправка на проверку), просмотр остального.
+// foreman   — документы (создание/правка/отправка), просмотр остального.
+// customer  — только просмотр (read-only) + AI.
+
+export function canManageProjects(role: Role): boolean {
+  return role === "admin" || role === "manager";
+}
+
 export function canApprove(role: Role): boolean {
   return role === "admin" || role === "manager";
+}
+
+export function canEditEstimates(role: Role): boolean {
+  return role === "admin" || role === "manager" || role === "estimator";
+}
+
+export function canEditDocuments(role: Role): boolean {
+  return role === "admin" || role === "manager" || role === "foreman";
+}
+
+export function isReadOnly(role: Role): boolean {
+  return role === "customer";
+}
+
+export function assertCanManageProjects(role: Role): void {
+  if (!canManageProjects(role)) throw ForbiddenError();
+}
+export function assertCanEditEstimates(role: Role): void {
+  if (!canEditEstimates(role)) throw ForbiddenError();
+}
+export function assertCanEditDocuments(role: Role): void {
+  if (!canEditDocuments(role)) throw ForbiddenError();
+}
+export function assertCanApprove(role: Role): void {
+  if (!canApprove(role)) throw ForbiddenError();
+}
+
+// Кто может выполнить переход статуса (помимо матрицы переходов).
+export function canTransitionEstimate(role: Role, from: EstimateStatus, to: EstimateStatus): boolean {
+  if (to === "approved" || to === "rejected") return canApprove(role);
+  if (to === "archived") return canApprove(role); // архивация — управленческое решение
+  // draft<->on_review (отправка/возврат в работу) — сметчик и выше
+  if (to === "on_review" || (from === "on_review" && to === "draft") || (from === "rejected" && to === "draft")) {
+    return canEditEstimates(role);
+  }
+  return canEditEstimates(role);
+}
+
+export function canTransitionDocument(role: Role, _from: DocumentStatus, to: DocumentStatus): boolean {
+  if (to === "approved" || to === "rejected") return canApprove(role);
+  // draft->submitted, rejected->draft — автор документа (прораб) и выше
+  return canEditDocuments(role);
 }
 
 const ESTIMATE_TRANSITIONS: Record<EstimateStatus, EstimateStatus[]> = {
