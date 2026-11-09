@@ -7,6 +7,15 @@ export interface Env {
   ASSETS: Fetcher;
   ENVIRONMENT: string;
   JWT_SECRET: string;
+  // LLM (необязательные; ключи — через `wrangler secret put`):
+  AI_BASE_URL?: string;
+  AI_API_KEY?: string;
+  AI_MODEL?: string;
+  AI_FALLBACK_BASE_URL?: string;
+  AI_FALLBACK_API_KEY?: string;
+  AI_FALLBACK_MODEL?: string;
+  AI_TIMEOUT_MS?: string;
+  AI_MAX_TOOL_CALLS?: string;
 }
 
 export type Role = "admin" | "manager" | "estimator" | "foreman" | "customer";

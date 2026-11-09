@@ -5,7 +5,8 @@
 // поэтому роутер обрабатывает только /api/v1/* и /healthz.
 import { Hono, type Context } from "hono";
 
-import { askOffline, BUDGET_TOKENS } from "./ai/offline";
+import { BUDGET_TOKENS } from "./ai/offline";
+import { ask } from "./ai/assistant";
 import {
   signToken,
   verifyPassword,
@@ -539,7 +540,7 @@ app.delete("/api/v1/documents/:id", authed(async (c) => {
   return c.body(null, 204);
 }));
 
-// ---------- AI-ассистент (детерминированный офлайн-режим) ----------
+// ---------- AI-ассистент (LLM с fallback + офлайн-режим) ----------
 
 app.get("/api/v1/ai/conversations", authed(async (c) => {
   const user = currentUser(c);
@@ -553,8 +554,9 @@ app.post("/api/v1/ai/chat", authed(async (c) => {
   if (!message) throw ValidationError("message", "укажите сообщение");
   const user = currentUser(c);
   const d = deps(c);
-  const res = await askOffline(
+  const res = await ask(
     { projects: d.projects, estimates: d.estimates, documents: d.documents, normative: d.normative, ai: d.ai },
+    c.env,
     { uid: user.uid },
     str(body.conversationId),
     message,

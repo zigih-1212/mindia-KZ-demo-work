@@ -35,7 +35,7 @@ describe("pickOfflineTool", () => {
 });
 
 describe("BUDGET_TOKENS", () => {
-  it("лимит демо-режима — 500 000 токенов", () => {
-    expect(BUDGET_TOKENS).toBe(500_000);
+  it("лимит демо-режима — 100 000 токенов на весь сайт", () => {
+    expect(BUDGET_TOKENS).toBe(100_000);
   });
 });

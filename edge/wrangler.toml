@@ -25,5 +25,13 @@ run_worker_first = ["/api/*", "/healthz"]
 
 [vars]
 ENVIRONMENT = "production"
+# LLM-ассистент: основной провайдер vyceai + fallback dahl (OpenAI-compatible).
+# Ключи — секретами: wrangler secret put AI_API_KEY / AI_FALLBACK_API_KEY
+AI_BASE_URL = "https://vyceai.com/v1"
+AI_MODEL = "deepseek-v4.1-flash"
+AI_FALLBACK_BASE_URL = "https://inference.dahl.global/v1"
+AI_FALLBACK_MODEL = "deepseek-ai/DeepSeek-V4-Flash-0731"
+AI_TIMEOUT_MS = "25000"
+AI_MAX_TOOL_CALLS = "6"
 
 # JWT_SECRET задаётся секретом: npx --yes wrangler@4 secret put JWT_SECRET

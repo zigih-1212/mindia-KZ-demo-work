@@ -13,20 +13,24 @@ import { DocumentRepo } from "../repositories/documents";
 import { analyzeItems } from "../services/analyze";
 import type { AIMessage, AIChatResult, AIUsage, ToolCallTrace } from "../types";
 
-export const BUDGET_TOKENS = 500_000;
+export const BUDGET_TOKENS = 100_000;
 
-const limitedMessage =
-  "Демо-режим ассистента закончился: исчерпан лимит токенов (500 000 входящих и исходящих). " +
+export const limitedMessage =
+  "Демо-режим ассистента закончился: исчерпан лимит токенов (100 000 входящих и исходящих суммарно на весь сайт). " +
   "Ассистент отключён до сброса бюджета администратором. Остальные функции платформы работают в полном объёме.";
 
-const refusalMessage =
+export const refusalMessage =
   "Я помогаю только по работе с платформой СтройКонтроль: объекты, сметы, документы " +
   "(КС-2/КС-3/акты/счета), нормативы и работа с интерфейсом. Уточните вопрос в этих рамках.";
 
 // pickOfflineTool — выбор инструмента по ключевым словам (как в Go).
+// __chat__ — болтовня/приветствия: отвечаем дружелюбно без инструментов.
 export function pickOfflineTool(q: string): { tool: string; args: string } {
   const s = q.toLowerCase();
-  if (containsAny(s, ["норматив", "гост", "снип", "фер", "правил", "документооборот"])) {
+  if (containsAny(s, ["привет", "здравствуй", "добрый день", "добрый вечер", "доброе утро", "как дела", "спасибо", "кто ты", "что ты умеешь"])) {
+    return { tool: "__chat__", args: JSON.stringify({ query: q }) };
+  }
+  if (containsAny(s, ["норматив", "гост", "снип", "сп ", "фер", "правил", "документооборот", "материал", "фундамент", "отделк", "кровл", "монтаж", "сметн", "безопасност", "охран", "тб", "технолог", "срок", "penalty", "неустойк"])) {
     return { tool: "search_normative", args: JSON.stringify({ query: q }) };
   }
   if (containsAny(s, ["смет", "аномал", "провер"])) {
@@ -55,7 +59,7 @@ export interface OfflineDeps {
 }
 
 // callTool — выполнение whitelisted инструмента с реальными данными платформы.
-async function callTool(deps: OfflineDeps, name: string, argsJSON: string): Promise<unknown> {
+export async function callTool(deps: OfflineDeps, name: string, argsJSON: string): Promise<unknown> {
   const args = safeParse(argsJSON);
   switch (name) {
     case "list_projects": {
@@ -202,7 +206,12 @@ export async function askOffline(
   let content = refusalMessage;
   let toolName = "";
 
-  if (tool) {
+  if (tool === "__chat__") {
+    content =
+      "Здравствуйте! Я ассистент «СтройКонтроль». Помогу с объектами, сметами, документами " +
+      "(КС-2/КС-3/акты/счета), нормативами и вообще вопросами по строительству. " +
+      "Спросите, например: «какие сметы сейчас на проверке?» или «что такое КС-2?».";
+  } else if (tool) {
     try {
       const out = await callTool(deps, tool, args);
       traces.push({ name: tool, args, result: truncate(JSON.stringify(out), 800) });
