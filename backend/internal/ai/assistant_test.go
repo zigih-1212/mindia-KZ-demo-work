@@ -96,7 +96,7 @@ func newTestAssistant(t *testing.T, repo *fakeAIRepo) *Assistant {
 	t.Helper()
 	// Пустой base URL/ключ => client.Enabled() == false => детерминированный офлайн.
 	client := NewClient("", "", "test-model", time.Second)
-	return NewAssistant(client, repo, ToolDeps{}, Config{Enabled: true, BudgetTokens: 500000})
+	return NewAssistant(client, repo, ToolDeps{}, Config{Enabled: true, BudgetTokens: 100000})
 }
 
 func TestPickOfflineTool_Routing(t *testing.T) {
@@ -108,6 +108,7 @@ func TestPickOfflineTool_Routing(t *testing.T) {
 		{"что сказано про фундамент в нормативах", "search_normative"},
 		{"покажи документы кс-2", "list_documents"},
 		{"сколько у нас объектов и бюджет", "project_overview"},
+		{"привет", "__chat__"},
 		{"рецепт борща", ""}, // вне области продукта
 	}
 	for _, c := range cases {
@@ -127,14 +128,14 @@ func TestAssistant_OffTopicRefusal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ask: %v", err)
 	}
-	if !strings.Contains(res.Message.Content, "Я помогаю только по работе с платформой") {
-		t.Errorf("ожидался вежливый отказ вне области продукта, получено: %q", res.Message.Content)
+	if !strings.Contains(res.Message.Content, "строительств") || !strings.Contains(res.Message.Content, "СтройКонтроль") {
+		t.Errorf("ожидался мягкий отказ/направление в рамках стройки, получено: %q", res.Message.Content)
 	}
 }
 
 func TestAssistant_BudgetExhausted(t *testing.T) {
 	repo := newFakeAIRepo()
-	repo.usage = domain.AIUsage{TokensIn: 500000} // лимит исчерпан
+	repo.usage = domain.AIUsage{TokensIn: 100000} // лимит исчерпан
 	a := newTestAssistant(t, repo)
 	actor := &domain.User{ID: "u1", Role: domain.RoleAdmin, IsActive: true}
 

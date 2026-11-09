@@ -43,7 +43,7 @@ func Load() (*Config, error) {
 		JWTTTL:          envDuration("JWT_TTL", 12*time.Hour),
 		FrontendOrigins: splitCSV(env("FRONTEND_ORIGINS", "http://localhost:5173,http://localhost:4173")),
 
-		AIBudgetTokens: envInt64("AI_BUDGET_TOKENS", 500_000),
+		AIBudgetTokens: envInt64("AI_BUDGET_TOKENS", 100_000),
 		AIEnabled:      envBool("AI_ENABLED", true),
 		AIBaseURL:      env("AI_BASE_URL", ""),
 		AIAPIKey:       env("AI_API_KEY", ""),
