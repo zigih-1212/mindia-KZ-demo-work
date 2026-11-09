@@ -39,6 +39,9 @@ type CreateProjectInput struct {
 
 // Create создаёт объект после валидации.
 func (s *ProjectService) Create(ctx context.Context, actor *domain.User, in CreateProjectInput) (*domain.Project, error) {
+	if actor != nil && !actor.Role.CanManageProjects() {
+		return nil, domain.ErrForbidden
+	}
 	in.Code = strings.TrimSpace(in.Code)
 	in.Name = strings.TrimSpace(in.Name)
 	if in.Code == "" {
@@ -104,6 +107,9 @@ type UpdateProjectInput struct {
 
 // Update изменяет объект с проверкой версии (оптимистическая блокировка).
 func (s *ProjectService) Update(ctx context.Context, actor *domain.User, id string, in UpdateProjectInput) (*domain.Project, error) {
+	if actor != nil && !actor.Role.CanManageProjects() {
+		return nil, domain.ErrForbidden
+	}
 	existing, err := s.projects.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -161,8 +167,11 @@ func (s *ProjectService) List(ctx context.Context, f ProjectFilter, page domain.
 	return s.projects.List(ctx, f, page)
 }
 
-// Delete удаляет объект (только администратор или менеджер — проверено в API).
+// Delete удаляет объект (только администратор или менеджер).
 func (s *ProjectService) Delete(ctx context.Context, actor *domain.User, id string) error {
+	if actor != nil && !actor.Role.CanManageProjects() {
+		return domain.ErrForbidden
+	}
 	p, err := s.projects.GetByID(ctx, id)
 	if err != nil {
 		return err

@@ -41,6 +41,9 @@ var validDocTypes = map[domain.DocumentType]bool{
 
 // Create создаёт документ в статусе черновика.
 func (s *DocumentService) Create(ctx context.Context, actor *domain.User, in CreateDocumentInput) (*domain.Document, error) {
+	if actor != nil && !actor.Role.CanEditDocuments() {
+		return nil, domain.ErrForbidden
+	}
 	in.Number = strings.TrimSpace(in.Number)
 	in.Title = strings.TrimSpace(in.Title)
 	if in.ProjectID == "" {
@@ -131,6 +134,9 @@ func (s *DocumentService) Transition(ctx context.Context, actor *domain.User, id
 	if (target == domain.DocApproved || target == domain.DocRejected) && !actor.Role.CanApprove() {
 		return nil, domain.ErrForbidden
 	}
+	if (target == domain.DocSubmitted || (d.Status == domain.DocRejected && target == domain.DocDraft)) && !actor.Role.CanEditDocuments() {
+		return nil, domain.ErrForbidden
+	}
 
 	approvedBy := ""
 	if target == domain.DocApproved {
@@ -155,6 +161,9 @@ func (s *DocumentService) Transition(ctx context.Context, actor *domain.User, id
 
 // Delete удаляет документ (кроме утверждённого).
 func (s *DocumentService) Delete(ctx context.Context, actor *domain.User, id string) error {
+	if actor != nil && !actor.Role.CanEditDocuments() {
+		return domain.ErrForbidden
+	}
 	d, err := s.documents.GetByID(ctx, id)
 	if err != nil {
 		return err

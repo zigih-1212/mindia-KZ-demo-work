@@ -47,6 +47,9 @@ type CreateEstimateInput struct {
 
 // Create создаёт смету, вычисляет суммы и итог.
 func (s *EstimateService) Create(ctx context.Context, actor *domain.User, in CreateEstimateInput) (*domain.Estimate, error) {
+	if actor != nil && !actor.Role.CanEditEstimates() {
+		return nil, domain.ErrForbidden
+	}
 	in.Number = strings.TrimSpace(in.Number)
 	in.Name = strings.TrimSpace(in.Name)
 	if in.ProjectID == "" {
@@ -115,6 +118,9 @@ func (s *EstimateService) List(ctx context.Context, f EstimateFilter, page domai
 
 // ReplaceItems заменяет позиции сметы (только в статусе черновика/на проверке).
 func (s *EstimateService) ReplaceItems(ctx context.Context, actor *domain.User, estimateID string, items []EstimateItemInput) (*domain.Estimate, error) {
+	if actor != nil && !actor.Role.CanEditEstimates() {
+		return nil, domain.ErrForbidden
+	}
 	e, err := s.estimates.GetByID(ctx, estimateID)
 	if err != nil {
 		return nil, err
@@ -179,11 +185,24 @@ func (s *EstimateService) checkTransition(e *domain.Estimate, target domain.Esti
 	if (target == domain.EstimateApproved || target == domain.EstimateRejected) && !actor.Role.CanApprove() {
 		return domain.ErrForbidden
 	}
+	// Архивация — управленческое решение.
+	if target == domain.EstimateArchived && !actor.Role.CanApprove() {
+		return domain.ErrForbidden
+	}
+	// Отправка/возврат в работу — право редактирования смет.
+	if target == domain.EstimateOnReview || (e.Status == domain.EstimateOnReview && target == domain.EstimateDraft) || (e.Status == domain.EstimateRejected && target == domain.EstimateDraft) {
+		if !actor.Role.CanEditEstimates() {
+			return domain.ErrForbidden
+		}
+	}
 	return nil
 }
 
 // Delete удаляет смету.
 func (s *EstimateService) Delete(ctx context.Context, actor *domain.User, id string) error {
+	if actor != nil && !actor.Role.CanEditEstimates() {
+		return domain.ErrForbidden
+	}
 	e, err := s.estimates.GetByID(ctx, id)
 	if err != nil {
 		return err

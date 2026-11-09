@@ -128,6 +128,11 @@ func (s *Server) handleEstimateTransition(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleEstimateAnalyze(w http.ResponseWriter, r *http.Request) {
+	actor, _ := userFrom(r.Context())
+	if actor != nil && !actor.Role.CanEditEstimates() {
+		writeError(w, domain.ErrForbidden)
+		return
+	}
 	a, err := s.estimates.Analyze(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		writeError(w, err)

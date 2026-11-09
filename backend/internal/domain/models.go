@@ -25,7 +25,23 @@ func (r Role) Valid() bool {
 	}
 }
 
-// CanEdit сообщает, разрешено ли роли изменять данные (кроме административных).
+// CanManageProjects — создание/изменение/удаление объектов.
+func (r Role) CanManageProjects() bool {
+	return r == RoleAdmin || r == RoleManager
+}
+
+// CanEditEstimates — сметы (создание/позиции/отправка/анализ).
+func (r Role) CanEditEstimates() bool {
+	return r == RoleAdmin || r == RoleManager || r == RoleEstimator
+}
+
+// CanEditDocuments — документы (создание/отправка).
+func (r Role) CanEditDocuments() bool {
+	return r == RoleAdmin || r == RoleManager || r == RoleForeman
+}
+
+// CanEdit — обратная совместимость: любая роль, кроме заказчика, может вносить
+// какие-то изменения (конкретные операции ограничены Can* методами выше).
 func (r Role) CanEdit() bool {
 	return r == RoleAdmin || r == RoleManager || r == RoleEstimator || r == RoleForeman
 }
