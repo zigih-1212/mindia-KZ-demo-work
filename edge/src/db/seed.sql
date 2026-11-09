@@ -1,5 +1,23 @@
 -- Демо-данные для edge-двойника (D1). Сгенерировано из backend/internal/store/seed.go
 -- (dumpseed). Пароли — PBKDF2 (demo1234); bcrypt недоступен в Workers.
+--
+-- Очистка в порядке child -> parent: на таблицах есть FK вида
+-- estimate_items.estimate_id, estimates.created_by → users(id) без ON DELETE,
+-- поэтому удалять пользователей/проекты первыми нельзя (FK violation).
+-- Ниже по файлу блоки «DELETE + INSERT» идут в порядке parent -> child,
+-- так что после этой очистки повторный залив идемпотентен.
+DELETE FROM ai_messages;
+DELETE FROM ai_conversations;
+DELETE FROM ai_usage;
+DELETE FROM estimate_items;
+DELETE FROM estimates;
+DELETE FROM documents;
+DELETE FROM materials;
+DELETE FROM project_stages;
+DELETE FROM projects;
+DELETE FROM activity;
+DELETE FROM normative_docs;
+DELETE FROM users;
 
 DELETE FROM users;
 INSERT INTO users (created_at, email, full_name, id, is_active, password_hash, position, role, updated_at) VALUES ('2026-11-07T20:55:19.5164192Z', 'admin@mindia.kz', 'Айдос Смагулов', 'fa0e141c-adf5-4181-b272-b3f68ec7cc12', 1, 'pbkdf2$100000$g6pl6Jr7GLkmXkM7gI-qrA$TuA5345lIdcuGFWMTJyvgOuAplix83aYKq88qQpOab4', 'Администратор платформы', 'admin', '2026-11-07T20:55:19.5164192Z');

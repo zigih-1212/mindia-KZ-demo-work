@@ -1,7 +1,7 @@
 // Репозиторий объектов и этапов (D1). Зеркало backend/internal/store/project_repo.go.
 
 import { ConflictError, NotFoundError, VersionMismatchError } from "../lib/errors";
-import { matchesSearch, newId, nowIso, today } from "../lib/util";
+import { matchesSearch, newId, nowIso, nullIfEmpty, today } from "../lib/util";
 import type { DashboardSummary, Project, ProjectBudget, ProjectStage, ProjectStatus, StatusCount } from "../types";
 
 interface ProjectRow {
@@ -169,7 +169,7 @@ export class ProjectRepo {
       .bind(
         id, inp.code, inp.name, inp.customer, inp.address, inp.status, inp.budgetMinor,
         inp.contractAmountMinor, inp.startDate, inp.plannedEndDate, inp.actualEndDate,
-        inp.managerId, inp.progressPercent, now, now,
+        nullIfEmpty(inp.managerId), inp.progressPercent, now, now,
       )
       .run();
     return this.mustGet(id);
@@ -187,7 +187,7 @@ export class ProjectRepo {
       .bind(
         inp.code, inp.name, inp.customer, inp.address, inp.status, inp.budgetMinor,
         inp.contractAmountMinor, inp.startDate, inp.plannedEndDate, inp.actualEndDate,
-        inp.managerId, inp.progressPercent, nowIso(), id, inp.version,
+        nullIfEmpty(inp.managerId), inp.progressPercent, nowIso(), id, inp.version,
       )
       .run();
     if ((res.meta?.changes ?? 0) === 0) {

@@ -1,7 +1,7 @@
 // Репозиторий смет и позиций (D1). Зеркало backend/internal/store/estimate_repo.go.
 
 import { ConflictError, NotFoundError, VersionMismatchError } from "../lib/errors";
-import { matchesSearch, newId, nowIso } from "../lib/util";
+import { matchesSearch, newId, nowIso, nullIfEmpty } from "../lib/util";
 import type { Estimate, EstimateItem, EstimateStatus } from "../types";
 
 interface EstimateRow {
@@ -150,7 +150,7 @@ export class EstimateRepo {
              created_by, approved_by, approved_at, version, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, NULL, NULL, 1, ?, ?)`,
         )
-        .bind(id, e.projectId, e.stageId, e.number, e.name, e.currency, e.totalMinor, e.createdBy, now, now),
+        .bind(id, e.projectId, nullIfEmpty(e.stageId), e.number, e.name, e.currency, e.totalMinor, e.createdBy, now, now),
       ...items.map((it, i) =>
         this.db
           .prepare(
@@ -177,7 +177,7 @@ export class EstimateRepo {
         `UPDATE estimates SET name = ?, stage_id = ?, currency = ?, version = version + 1, updated_at = ?
          WHERE id = ? AND version = ?`,
       )
-      .bind(inp.name, inp.stageId, inp.currency, nowIso(), id, inp.version)
+      .bind(inp.name, nullIfEmpty(inp.stageId), inp.currency, nowIso(), id, inp.version)
       .run();
     if ((res.meta?.changes ?? 0) === 0) {
       const existing = await this.getByID(id);

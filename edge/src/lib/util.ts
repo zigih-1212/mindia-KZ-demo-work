@@ -49,3 +49,13 @@ export function matchesSearch(haystack: string | null | undefined, search: strin
 export function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) : s;
 }
+
+// nullIfEmpty — зеркало store.nullIfEmpty из Go. Необязательные ссылки на
+// users(id)/project_stages(id) в схеме объявлены как FK
+// (`manager_id TEXT REFERENCES users(id)`, `stage_id TEXT REFERENCES project_stages(id)`).
+// Пустая строка не проходит проверку внешнего ключа, поэтому «нет связи» нужно
+// писать как NULL, иначе вставка/обновление падает.
+export function nullIfEmpty(s: string | null | undefined): string | null {
+  const v = (s ?? "").trim();
+  return v === "" ? null : v;
+}
