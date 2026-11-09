@@ -1,10 +1,13 @@
 import { useState, type FormEvent } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, HttpError } from "../services/api";
 import { useAsync } from "../lib/useAsync";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { Modal } from "../components/Modal";
 import { Badge, EmptyState, ErrorState, LoadingRows, PageHeader } from "../components/ui";
+import { SectionTabs, type TabDef } from "../components/Tabs";
+import { canApprove, canEditDocuments } from "../lib/rbac";
 import {
   DOCUMENT_STATUS_LABELS,
   DOCUMENT_TYPE_LABELS,
@@ -16,28 +19,32 @@ import {
 } from "../lib/format";
 import type { DocumentStatus, DocumentType, Project } from "../types";
 
-const STATUS_FILTERS: { value: DocumentStatus | "all"; label: string }[] = [
-  { value: "all", label: "Все" },
-  { value: "draft", label: "Черновик" },
-  { value: "submitted", label: "На проверке" },
-  { value: "approved", label: "Утверждён" },
-  { value: "rejected", label: "Отклонён" },
+type ViewTab = "all" | DocumentStatus;
+const TABS: TabDef<ViewTab>[] = [
+  { id: "all", label: "Все" },
+  { id: "submitted", label: "На проверке" },
+  { id: "draft", label: "Черновики" },
+  { id: "approved", label: "Утверждённые" },
+  { id: "rejected", label: "Отклонённые" },
 ];
 
 export function DocumentsPage() {
   const { user } = useAuth();
   const { notify } = useToast();
-  const [status, setStatus] = useState<DocumentStatus | "all">("all");
+  const [sp] = useSearchParams();
+  const tab = ((sp.get("tab") as ViewTab) || "all");
+  const status: DocumentStatus | "all" = (TABS.some((t) => t.id === tab) ? tab : "all") as ViewTab;
   const [type, setType] = useState<DocumentType | "all">("all");
   const [creating, setCreating] = useState(false);
-  const canApprove = user?.role === "admin" || user?.role === "manager";
+  const mayApprove = canApprove(user?.role);
+  const mayEdit = canEditDocuments(user?.role);
 
   const { data, loading, error, reload } = useAsync(
     () =>
       api.listDocuments({
         status: status === "all" ? undefined : status,
         type: type === "all" ? undefined : type,
-        limit: 50,
+        limit: 100,
       }),
     [status, type],
   );
@@ -56,30 +63,26 @@ export function DocumentsPage() {
     <div>
       <PageHeader
         title="Исполнительная документация"
-        subtitle="Акты КС-2, справки КС-3, счета и акты по объектам"
+        subtitle="Акты КС-2, КС-3, счета и акты — вкладки переключаются внутри раздела"
         actions={
-          <button className="btn-primary" onClick={() => setCreating(true)}>
-            + Новый документ
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/projects" className="btn-secondary text-sm">К объектам</Link>
+            <Link to="/estimates?tab=pending" className="btn-secondary text-sm">Сметы на проверке</Link>
+            {mayEdit ? (
+              <button className="btn-primary" onClick={() => setCreating(true)}>
+                + Новый документ
+              </button>
+            ) : null}
+          </div>
         }
       />
 
+      <SectionTabs tabs={TABS} defaultTab="all" />
+
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap gap-1.5">
-          {STATUS_FILTERS.map((f) => (
-            <button
-              key={f.value}
-              onClick={() => setStatus(f.value)}
-              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                status === f.value
-                  ? "bg-brand-600 text-white"
-                  : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <p className="text-sm text-slate-500">
+          {status === "all" ? "Все статусы." : `Вкладка: ${DOCUMENT_STATUS_LABELS[status]}.`} Действия зависят от вашей роли.
+        </p>
         <select
           className="input lg:max-w-[16rem]"
           value={type}
@@ -99,7 +102,7 @@ export function DocumentsPage() {
       ) : error ? (
         <ErrorState message={error} onRetry={reload} />
       ) : !data || data.items.length === 0 ? (
-        <EmptyState title="Документы не найдены" description="Измените фильтры." />
+        <EmptyState title="Документы не найдены" description="Измените вкладку/тип или создайте документ (прораб/менеджер/админ)." />
       ) : (
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">
@@ -119,55 +122,34 @@ export function DocumentsPage() {
               <tbody className="divide-y divide-slate-100 bg-white">
                 {data.items.map((d) => (
                   <tr key={d.id} className="hover:bg-slate-50">
-                    <td className="td">
-                      <Badge tone="brand">{DOCUMENT_TYPE_LABELS[d.type]}</Badge>
-                    </td>
+                    <td className="td"><Badge tone="brand">{DOCUMENT_TYPE_LABELS[d.type]}</Badge></td>
                     <td className="td font-mono text-xs text-slate-500">{d.number}</td>
                     <td className="td font-medium text-slate-800">{d.title}</td>
-                    <td className="td text-slate-600">{d.projectName || "—"}</td>
+                    <td className="td text-slate-600">
+                      {d.projectId ? <Link className="hover:text-brand-600" to={`/projects/${d.projectId}`}>{d.projectName || "Объект"}</Link> : (d.projectName || "—")}
+                    </td>
                     <td className="td whitespace-nowrap text-xs text-slate-500">
                       {formatDate(d.periodFrom)} — {formatDate(d.periodTo)}
                     </td>
                     <td className="td whitespace-nowrap">{formatMoney(d.amountMinor)}</td>
                     <td className="td">
-                      <Badge tone={documentStatusTone(d.status)}>
-                        {DOCUMENT_STATUS_LABELS[d.status]}
-                      </Badge>
+                      <Badge tone={documentStatusTone(d.status)}>{DOCUMENT_STATUS_LABELS[d.status]}</Badge>
                     </td>
                     <td className="td">
                       <div className="flex flex-wrap gap-1">
-                        {d.status === "draft" ? (
-                          <button
-                            className="btn-ghost !px-2 !py-1 text-xs"
-                            onClick={() => transition(d.id, "submitted", d.version)}
-                          >
-                            На проверку
-                          </button>
+                        {d.status === "draft" && mayEdit ? (
+                          <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => transition(d.id, "submitted", d.version)}>На проверку</button>
                         ) : null}
-                        {d.status === "submitted" && canApprove ? (
+                        {d.status === "submitted" && mayApprove ? (
                           <>
-                            <button
-                              className="btn-ghost !px-2 !py-1 text-xs text-emerald-700"
-                              onClick={() => transition(d.id, "approved", d.version)}
-                            >
-                              Утвердить
-                            </button>
-                            <button
-                              className="btn-ghost !px-2 !py-1 text-xs text-red-700"
-                              onClick={() => transition(d.id, "rejected", d.version)}
-                            >
-                              Отклонить
-                            </button>
+                            <button className="btn-ghost !px-2 !py-1 text-xs text-emerald-700" onClick={() => transition(d.id, "approved", d.version)}>Утвердить</button>
+                            <button className="btn-ghost !px-2 !py-1 text-xs text-red-700" onClick={() => transition(d.id, "rejected", d.version)}>Отклонить</button>
                           </>
                         ) : null}
-                        {d.status === "rejected" ? (
-                          <button
-                            className="btn-ghost !px-2 !py-1 text-xs"
-                            onClick={() => transition(d.id, "draft", d.version)}
-                          >
-                            В черновик
-                          </button>
+                        {d.status === "rejected" && mayEdit ? (
+                          <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => transition(d.id, "draft", d.version)}>В черновик</button>
                         ) : null}
+                        {!mayEdit && !mayApprove ? <span className="text-xs text-slate-400">только просмотр</span> : null}
                       </div>
                     </td>
                   </tr>
@@ -242,9 +224,7 @@ function DocumentFormModal({ onClose, onSaved }: { onClose: () => void; onSaved:
       width="max-w-xl"
       footer={
         <>
-          <button type="button" className="btn-secondary" onClick={onClose}>
-            Отмена
-          </button>
+          <button type="button" className="btn-secondary" onClick={onClose}>Отмена</button>
           <button type="submit" form="doc-form" className="btn-primary" disabled={busy}>
             {busy ? "Сохранение…" : "Создать"}
           </button>
@@ -252,98 +232,42 @@ function DocumentFormModal({ onClose, onSaved }: { onClose: () => void; onSaved:
       }
     >
       <form id="doc-form" onSubmit={submit} className="space-y-4" noValidate>
-        {error ? (
-          <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error}
-          </div>
-        ) : null}
-
+        {error ? <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
         <div>
-          <label className="label" htmlFor="projectId">
-            Объект *
-          </label>
-          <select
-            id="projectId"
-            className="input"
-            value={form.projectId}
-            onChange={set("projectId")}
-            required
-          >
+          <label className="label" htmlFor="projectId">Объект *</label>
+          <select id="projectId" className="input" value={form.projectId} onChange={set("projectId")} required>
             <option value="">— выберите объект —</option>
-            {projectList.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.code} · {p.name}
-              </option>
-            ))}
+            {projectList.map((p) => (<option key={p.id} value={p.id}>{p.code} · {p.name}</option>))}
           </select>
         </div>
-
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="label" htmlFor="type">
-              Тип
-            </label>
+            <label className="label" htmlFor="type">Тип</label>
             <select id="type" className="input" value={form.type} onChange={set("type")}>
-              {(Object.keys(DOCUMENT_TYPE_LABELS) as DocumentType[]).map((t) => (
-                <option key={t} value={t}>
-                  {DOCUMENT_TYPE_LABELS[t]}
-                </option>
-              ))}
+              {(Object.keys(DOCUMENT_TYPE_LABELS) as DocumentType[]).map((t) => (<option key={t} value={t}>{DOCUMENT_TYPE_LABELS[t]}</option>))}
             </select>
           </div>
           <div>
-            <label className="label" htmlFor="number">
-              Номер *
-            </label>
+            <label className="label" htmlFor="number">Номер *</label>
             <input id="number" className="input" value={form.number} onChange={set("number")} required />
           </div>
         </div>
-
         <div>
-          <label className="label" htmlFor="title">
-            Название *
-          </label>
+          <label className="label" htmlFor="title">Название *</label>
           <input id="title" className="input" value={form.title} onChange={set("title")} required />
         </div>
-
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div>
-            <label className="label" htmlFor="periodFrom">
-              Период с
-            </label>
-            <input
-              id="periodFrom"
-              type="date"
-              className="input"
-              value={form.periodFrom}
-              onChange={set("periodFrom")}
-            />
+            <label className="label" htmlFor="periodFrom">Период с</label>
+            <input id="periodFrom" type="date" className="input" value={form.periodFrom} onChange={set("periodFrom")} />
           </div>
           <div>
-            <label className="label" htmlFor="periodTo">
-              Период по
-            </label>
-            <input
-              id="periodTo"
-              type="date"
-              className="input"
-              value={form.periodTo}
-              onChange={set("periodTo")}
-            />
+            <label className="label" htmlFor="periodTo">Период по</label>
+            <input id="periodTo" type="date" className="input" value={form.periodTo} onChange={set("periodTo")} />
           </div>
           <div>
-            <label className="label" htmlFor="amount">
-              Сумма, ₸
-            </label>
-            <input
-              id="amount"
-              type="number"
-              min="0"
-              step="0.01"
-              className="input"
-              value={form.amount}
-              onChange={set("amount")}
-            />
+            <label className="label" htmlFor="amount">Сумма, ₸</label>
+            <input id="amount" type="number" min="0" step="0.01" className="input" value={form.amount} onChange={set("amount")} />
           </div>
         </div>
       </form>

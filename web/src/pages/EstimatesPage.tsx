@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../services/api";
 import { useAsync } from "../lib/useAsync";
 import { Badge, EmptyState, ErrorState, LoadingRows, PageHeader } from "../components/ui";
+import { SectionTabs, type TabDef } from "../components/Tabs";
 import {
   ESTIMATE_STATUS_LABELS,
   estimateStatusTone,
@@ -11,52 +12,58 @@ import {
 } from "../lib/format";
 import type { EstimateStatus } from "../types";
 
-const FILTERS: { value: EstimateStatus | "all"; label: string }[] = [
-  { value: "all", label: "Все" },
-  { value: "draft", label: "Черновик" },
-  { value: "on_review", label: "На проверке" },
-  { value: "approved", label: "Утверждена" },
-  { value: "rejected", label: "Отклонена" },
-  { value: "archived", label: "Архив" },
+type ViewTab = "all" | "pending" | EstimateStatus;
+const TABS: TabDef<ViewTab>[] = [
+  { id: "all", label: "Все" },
+  { id: "pending", label: "На проверке" },
+  { id: "draft", label: "Черновики" },
+  { id: "approved", label: "Утверждённые" },
+  { id: "rejected", label: "Отклонённые" },
+  { id: "archived", label: "Архив" },
 ];
 
+function toApiStatus(tab: ViewTab): EstimateStatus | undefined {
+  if (tab === "all") return undefined;
+  if (tab === "pending") return "on_review";
+  return tab as EstimateStatus;
+}
+
 export function EstimatesPage() {
-  const [status, setStatus] = useState<EstimateStatus | "all">("all");
+  const [sp] = useSearchParams();
+  const tab = ((sp.get("tab") as ViewTab) || "all");
+  const safeTab = TABS.some((t) => t.id === tab) ? tab : "all";
+  const status = toApiStatus(safeTab);
   const [search, setSearch] = useState("");
 
   const { data, loading, error, reload } = useAsync(
     () =>
       api.listEstimates({
-        status: status === "all" ? undefined : status,
+        status,
         search: search.trim() || undefined,
-        limit: 50,
+        limit: 100,
       }),
-    [status, search],
+    [safeTab, search],
   );
 
   return (
     <div>
       <PageHeader
         title="Сметы"
-        subtitle="Сметные расчёты по объектам с контролем версий и проверкой на аномалии"
+        subtitle="Сметные расчёты с контролем версий и проверкой на аномалии — вкладки внутри раздела"
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Link to="/documents?tab=submitted" className="btn-secondary text-sm">Документы на проверке</Link>
+            <Link to="/projects" className="btn-secondary text-sm">К объектам</Link>
+          </div>
+        }
       />
 
+      <SectionTabs tabs={TABS} defaultTab="all" />
+
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-1.5">
-          {FILTERS.map((f) => (
-            <button
-              key={f.value}
-              onClick={() => setStatus(f.value)}
-              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                status === f.value
-                  ? "bg-brand-600 text-white"
-                  : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <p className="text-sm text-slate-500">
+          {safeTab === "all" ? "Все сметы." : `Вкладка: ${safeTab === "pending" ? "На проверке" : ESTIMATE_STATUS_LABELS[safeTab as EstimateStatus]}.`} Открывайте смету для проверки/согласования.
+        </p>
         <input
           className="input sm:max-w-xs"
           placeholder="Поиск по номеру, названию…"
@@ -70,7 +77,7 @@ export function EstimatesPage() {
       ) : error ? (
         <ErrorState message={error} onRetry={reload} />
       ) : !data || data.items.length === 0 ? (
-        <EmptyState title="Сметы не найдены" description="Измените фильтры поиска." />
+        <EmptyState title="Сметы не найдены" description="Измените вкладку/поиск." />
       ) : (
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">
@@ -91,26 +98,19 @@ export function EstimatesPage() {
                   <tr key={e.id} className="hover:bg-slate-50">
                     <td className="td font-mono text-xs text-slate-500">{e.number}</td>
                     <td className="td">
-                      <Link
-                        to={`/estimates/${e.id}`}
-                        className="font-medium text-slate-900 hover:text-brand-600"
-                      >
+                      <Link to={`/estimates/${e.id}`} className="font-medium text-slate-900 hover:text-brand-600">
                         {e.name}
                       </Link>
                     </td>
-                    <td className="td text-slate-600">{e.projectName || "—"}</td>
+                    <td className="td text-slate-600">
+                      {e.projectId ? <Link className="hover:text-brand-600" to={`/projects/${e.projectId}`}>{e.projectName || "Объект"}</Link> : (e.projectName || "—")}
+                    </td>
                     <td className="td text-slate-600">{e.itemCount}</td>
-                    <td className="td whitespace-nowrap font-medium">
-                      {formatMoney(e.totalMinor)}
-                    </td>
+                    <td className="td whitespace-nowrap font-medium">{formatMoney(e.totalMinor)}</td>
                     <td className="td">
-                      <Badge tone={estimateStatusTone(e.status)}>
-                        {ESTIMATE_STATUS_LABELS[e.status]}
-                      </Badge>
+                      <Badge tone={estimateStatusTone(e.status)}>{ESTIMATE_STATUS_LABELS[e.status]}</Badge>
                     </td>
-                    <td className="td whitespace-nowrap text-slate-500">
-                      {formatDate(e.createdAt)}
-                    </td>
+                    <td className="td whitespace-nowrap text-slate-500">{formatDate(e.createdAt)}</td>
                   </tr>
                 ))}
               </tbody>
