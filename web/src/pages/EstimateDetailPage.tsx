@@ -15,7 +15,7 @@ import {
   formatMoneyShort,
   severityTone,
 } from "../lib/format";
-import type { EstimateAnalysis, EstimateStatus } from "../types";
+import type { EstimateAnalysis, EstimateStatus, Role } from "../types";
 
 /** Матрица переходов (совпадает с backend/edge). */
 const TRANSITIONS: Record<EstimateStatus, { to: EstimateStatus; label: string }[]> = {
@@ -36,7 +36,7 @@ const TRANSITIONS: Record<EstimateStatus, { to: EstimateStatus; label: string }[
   archived: [],
 };
 
-function canDoTransition(role: ReturnType<typeof useAuth>["user"] extends infer U ? (U extends { role: infer R } ? R : never) : never, from: EstimateStatus, to: EstimateStatus): boolean {
+function canDoTransition(role: Role | undefined, from: EstimateStatus, to: EstimateStatus): boolean {
   if (to === "approved" || to === "rejected" || to === "archived") return canApprove(role);
   if (to === "on_review" || (from === "on_review" && to === "draft") || (from === "rejected" && to === "draft")) {
     return canEditEstimates(role);
