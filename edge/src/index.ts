@@ -34,7 +34,10 @@ import {
   analyzeItems,
 } from "./services/analyze";
 import {
-  canApprove,
+  canEditDocuments,
+  canEditEstimates,
+  canTransitionDocument,
+  canTransitionEstimate,
   documentCanTransition,
   estimateCanTransition,
   estimateEditable,
@@ -167,13 +170,11 @@ app.post("/api/v1/auth/register", async (c) => {
   const password = str(body.password);
   const fullName = str(body.fullName);
   const position = str(body.position);
-  const roleInput = str(body.role);
   if (!email.includes("@")) throw ValidationError("email", "укажите корректный email");
   if (password.length < 8) throw ValidationError("password", "пароль должен быть не короче 8 символов");
   if (!fullName) throw ValidationError("fullName", "укажите имя");
-  let role = roleInput as Role;
-  if (!role) role = "foreman"; // роль по умолчанию — прораб, как в Go-сервисе
-  if (!ROLES.includes(role)) throw ValidationError("role", "неизвестная роль");
+  // Публичная регистрация: роль всегда foreman (нельзя эскалировать привилегии).
+  const role: Role = "foreman";
 
   const d = deps(c);
   if (await d.users.getByEmail(email)) throw ConflictError();
@@ -361,6 +362,7 @@ app.post("/api/v1/estimates", authed(async (c) => {
 
   const d = deps(c);
   const me = await actorOf(c);
+  if (!canEditEstimates(me.role)) throw ForbiddenError();
   await d.projects.mustGet(projectId); // 404, если объект не существует
   const items = normalizeItems(body.items);
   if (await d.estimates.duplicateExists(projectId, number)) throw ConflictError();
@@ -394,6 +396,7 @@ app.put("/api/v1/estimates/:id/items", authed(async (c) => {
   const id = param(c, "id");
   const d = deps(c);
   const me = await actorOf(c);
+  if (!canEditEstimates(me.role)) throw ForbiddenError();
   const e = await d.estimates.mustGet(id);
   if (!estimateEditable(e.status)) {
     throw PreconditionError();
@@ -418,7 +421,7 @@ app.post("/api/v1/estimates/:id/transition", authed(async (c) => {
   if (!estimateCanTransition(e.status, target)) {
     throw new AppError(412, "precondition_failed", `переход ${e.status} → ${target} недопустим`);
   }
-  if ((target === "approved" || target === "rejected") && !canApprove(me.role)) throw ForbiddenError();
+  if (!canTransitionEstimate(me.role, e.status, target)) throw ForbiddenError();
 
   await d.estimates.updateStatus(id, target, target === "approved" ? me.id : "", e.version);
   await logActivity(c, me, "status", "estimate", id, `Смета ${e.number}: ${e.status} → ${target}`);
@@ -427,6 +430,8 @@ app.post("/api/v1/estimates/:id/transition", authed(async (c) => {
 
 app.post("/api/v1/estimates/:id/analyze", authed(async (c) => {
   const d = deps(c);
+  const me = await actorOf(c);
+  if (!canEditEstimates(me.role)) throw ForbiddenError();
   const e = await d.estimates.mustGet(param(c, "id"));
   const items = await d.estimates.items(e.id);
   return c.json(analyzeItems(e.id, e.totalMinor, items));
@@ -436,6 +441,7 @@ app.delete("/api/v1/estimates/:id", authed(async (c) => {
   const id = param(c, "id");
   const d = deps(c);
   const me = await actorOf(c);
+  if (!canEditEstimates(me.role)) throw ForbiddenError();
   const e = await d.estimates.mustGet(id);
   if (e.status === "approved") throw PreconditionError();
   await d.estimates.del(id);
@@ -485,6 +491,7 @@ app.post("/api/v1/documents", authed(async (c) => {
 
   const d = deps(c);
   const me = await actorOf(c);
+  if (!canEditDocuments(me.role)) throw ForbiddenError();
   await d.projects.mustGet(projectId); // 404
   const created = await d.documents.create({
     projectId,
@@ -518,7 +525,7 @@ app.post("/api/v1/documents/:id/transition", authed(async (c) => {
   if (!documentCanTransition(doc.status, target)) {
     throw new AppError(412, "precondition_failed", `переход ${doc.status} → ${target} недопустим`);
   }
-  if ((target === "approved" || target === "rejected") && !canApprove(me.role)) throw ForbiddenError();
+  if (!canTransitionDocument(me.role, doc.status, target)) throw ForbiddenError();
 
   await d.documents.updateStatus(id, target, target === "approved" ? me.id : "", doc.version);
   // Утверждённые КС-2/КС-3 увеличивают фактические затраты объекта (как в Go).
@@ -533,6 +540,7 @@ app.delete("/api/v1/documents/:id", authed(async (c) => {
   const id = param(c, "id");
   const d = deps(c);
   const me = await actorOf(c);
+  if (!canEditDocuments(me.role)) throw ForbiddenError();
   const doc = await d.documents.mustGet(id);
   if (doc.status === "approved") throw PreconditionError();
   await d.documents.del(id);

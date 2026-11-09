@@ -78,12 +78,9 @@ func (s *AuthService) Register(ctx context.Context, in RegisterInput) (LoginResu
 	if err := validateRegister(in); err != nil {
 		return LoginResult{}, err
 	}
-	if in.Role == "" {
-		in.Role = domain.RoleForeman
-	}
-	if !in.Role.Valid() {
-		return LoginResult{}, domain.NewValidation("role", "неизвестная роль")
-	}
+	// Публичная регистрация: роль всегда foreman (нельзя эскалировать привилегии).
+	// Управление ролями — только через администрирование (вне публичного API).
+	in.Role = domain.RoleForeman
 	hash, err := s.auth.HashPassword(in.Password)
 	if err != nil {
 		return LoginResult{}, err

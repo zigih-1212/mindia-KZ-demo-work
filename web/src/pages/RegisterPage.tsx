@@ -3,8 +3,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { HttpError } from "../services/api";
-import { ROLE_LABELS } from "../lib/format";
-import type { Role } from "../types";
 
 export function RegisterPage() {
   const { register } = useAuth();
@@ -15,7 +13,6 @@ export function RegisterPage() {
     password: "",
     fullName: "",
     position: "",
-    role: "foreman" as Role,
   });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -33,7 +30,6 @@ export function RegisterPage() {
         password: form.password,
         fullName: form.fullName.trim(),
         position: form.position.trim(),
-        role: form.role,
       });
       notify("Аккаунт создан", "success");
       navigate("/", { replace: true });
@@ -95,31 +91,17 @@ export function RegisterPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="label" htmlFor="position">
-                Должность
-              </label>
-              <input
-                id="position"
-                className="input"
-                value={form.position}
-                onChange={set("position")}
-                placeholder="Прораб"
-              />
-            </div>
-            <div>
-              <label className="label" htmlFor="role">
-                Роль
-              </label>
-              <select id="role" className="input" value={form.role} onChange={set("role")}>
-                {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
-                  <option key={r} value={r}>
-                    {ROLE_LABELS[r]}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div>
+            <label className="label" htmlFor="position">
+              Должность
+            </label>
+            <input
+              id="position"
+              className="input"
+              value={form.position}
+              onChange={set("position")}
+              placeholder="Прораб"
+            />
           </div>
 
           <div>
