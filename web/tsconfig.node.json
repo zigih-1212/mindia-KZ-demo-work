@@ -5,7 +5,11 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
-    "strict": true
+    "strict": true,
+    // Компилируемый vite.config.js не должен попадать в корень web/:
+    // vite читает vite.config.js ПЕРЕД vite.config.ts, и устаревший
+    // скомпилированный конфиг молча перекрывает правки исходника.
+    "outDir": "./node_modules/.tmp/tsconfig-node"
   },
   "include": ["vite.config.ts"]
 }
