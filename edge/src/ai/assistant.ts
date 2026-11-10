@@ -5,10 +5,10 @@
 import {
   AI_MAX_HISTORY,
   AI_MAX_TOOL_CALLS,
-  AI_TIMEOUT_MS,
   SYSTEM_PROMPT,
   completeWithFallback,
   providersFromEnv,
+  timeoutMsFromEnv,
   type ChatMessage,
   type CompletionResult,
 } from "./llm";
@@ -64,7 +64,7 @@ export async function ask(
   const providers = providersFromEnv(env);
   const result =
     providers.length > 0
-      ? await runLLM(deps, providers, conv.id, text, actor)
+      ? await runLLM(deps, providers, env, conv.id, text, actor)
       : await runOffline(deps, conv.id, text);
 
   await deps.ai.touch(conv.id, "");
@@ -89,6 +89,7 @@ interface RunOutcome {
 async function runLLM(
   deps: OfflineDeps,
   providers: ReturnType<typeof providersFromEnv>,
+  env: object,
   convId: string,
   userText: string,
   actor: { uid: string },
@@ -119,12 +120,22 @@ async function runLLM(
 
     let comp: CompletionResult;
     try {
-      const r = await completeWithFallback(providers, messages, AI_TIMEOUT_MS, true);
+      const r = await completeWithFallback(providers, messages, timeoutMsFromEnv(env), true);
       comp = r.result;
       usedProvider = r.provider;
-    } catch {
-      // Все провайдеры отвалились — честный офлайн-ответ по эвристике.
+    } catch (err) {
+      // Все провайдеры отвалились. Причина логируется: иначе отказ LLM
+      // неотличим от «ключи не заданы».
+      const reason = err instanceof Error ? err.message : String(err);
+      console.error("[ai] LLM недоступен:", reason);
       await deps.ai.addUsage(totalIn, totalOut);
+      // Если инструменты уже отработали — отдаём их данные: реальные цифры
+      // полезнее офлайн-шаблона, который утверждает, что LLM не подключена.
+      if (traces.length > 0) {
+        const content = degradedAnswer(traces, reason);
+        const reply = await appendAssistant(deps.ai, convId, content, "", totalIn, totalOut);
+        return { message: reply, sources: dedupe(sources), toolCalls: traces };
+      }
       return runOffline(deps, convId, userText);
     }
 
@@ -161,6 +172,20 @@ async function runLLM(
   void usedProvider; // провайдер-источник не храним в сообщении, только в логике fallback
   void actor;
   return { message: reply, sources: dedupe(sources), toolCalls: traces };
+}
+
+// degradedAnswer — ответ по данным уже полученных инструментов на случай,
+// когда финальный вызов LLM не удался (таймаут или ошибка провайдера).
+function degradedAnswer(traces: ToolCallTrace[], reason: string): string {
+  const lines = traces.map((t) =>
+    t.error ? `• ${t.name}: ошибка (${t.error})` : `• ${t.name}: ${truncate(t.result, 600)}`,
+  );
+  return (
+    "Собрал актуальные данные платформы по вашему запросу, но сформулировать ответ " +
+    "модель не успела (лимит времени ответа провайдера). Данные инструментов:\n" +
+    lines.join("\n") +
+    `\n\n(причина: ${truncate(reason, 120)})`
+  );
 }
 
 // runOffline — детерминированный путь без LLM (нет ключей или все провайдеры лежат).

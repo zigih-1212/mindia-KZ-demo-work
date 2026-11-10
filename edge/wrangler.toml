@@ -25,13 +25,20 @@ run_worker_first = ["/api/*", "/healthz"]
 
 [vars]
 ENVIRONMENT = "production"
-# LLM-ассистент: основной провайдер vyceai + fallback dahl (OpenAI-compatible).
-# Ключи — секретами: wrangler secret put AI_API_KEY / AI_FALLBACK_API_KEY
+# LLM-ассистент: два OpenAI-compatible провайдера, ключи — секретами
+# (wrangler secret put AI_API_KEY / AI_FALLBACK_API_KEY).
+# Проверено диагностикой (ai/providers/*): у vyceai бесплатные модели отдают
+# 400/503/403, поэтому рабочий endpoint — dahl; его модели в fallback-слоте
+# (ключ dahl доступен только в слоте AI_FALLBACK_API_KEY).
+# Порядок провайдеров: vyceai → dahl(GLM-5.3-Flash) → dahl(MiniMax M2.7).
 AI_BASE_URL = "https://vyceai.com/v1"
-AI_MODEL = "deepseek-v4.1-flash"
+AI_MODEL = "deepseek-v4.1"
 AI_FALLBACK_BASE_URL = "https://inference.dahl.global/v1"
-AI_FALLBACK_MODEL = "deepseek-ai/DeepSeek-V4-Flash-0731"
-AI_TIMEOUT_MS = "25000"
+AI_FALLBACK_MODEL = "zai-org/GLM-5.3-Flash"
+AI_FALLBACK_MODEL_ALT = "MiniMaxAI/MiniMax-M2.7"
+# Таймаут одного вызова LLM: ответ после данных инструментов занимает 20-30 с,
+# при 25 с вызов обрывался и пользователь получал офлайн-шаблон.
+AI_TIMEOUT_MS = "60000"
 AI_MAX_TOOL_CALLS = "6"
 
 # JWT_SECRET задаётся секретом: npx --yes wrangler@4 secret put JWT_SECRET

@@ -7,6 +7,8 @@ import { Hono, type Context } from "hono";
 
 import { BUDGET_TOKENS } from "./ai/offline";
 import { ask } from "./ai/assistant";
+import { probeChat, probeCombos, probeProviders } from "./ai/diagnostics";
+import { probeLoop } from "./ai/loopprobe";
 import {
   signToken,
   verifyPassword,
@@ -583,6 +585,49 @@ app.get("/api/v1/ai/conversations/:id/messages", authed(async (c) => {
 app.get("/api/v1/ai/usage", authed(async (c) => {
   const usage = await deps(c).ai.usage();
   return c.json({ ...usage, limitTotal: BUDGET_TOKENS });
+}));
+
+// Диагностика LLM-провайдеров (только admin): статусы и список моделей.
+// Ключи не выводятся — только то, что нужно для настройки AI_BASE_URL/AI_MODEL.
+app.get("/api/v1/ai/providers", guarded("admin")(async (c) => {
+  const items = await probeProviders(c.env);
+  return c.json({ items });
+}));
+
+// Проверка самого вызова чата (с инструментами и без) — показывает, какой
+// запрос отклоняет провайдер. Query: ?provider=vyceai&model=deepseek-v4.1&tools=1&variant=plain
+app.get("/api/v1/ai/providers/chat-check", guarded("admin")(async (c) => {
+  const tools = c.req.query("tools");
+  const provider = c.req.query("provider");
+  const model = c.req.query("model");
+  const variant = c.req.query("variant");
+  const items = await probeChat(c.env, 20_000, {
+    provider: provider || undefined,
+    model: model || undefined,
+    withTools: tools === undefined ? undefined : tools !== "0",
+    variant: variant === "plain" ? "plain" : variant === "no-thinking" ? "no-thinking" : undefined,
+  });
+  return c.json({ items });
+}));
+
+// Перебор пар (base URL × ключ): какая связка реально работает.
+// Значения ключей не выводятся — только имена слотов (AI_API_KEY и т.п.).
+app.get("/api/v1/ai/providers/combos", guarded("admin")(async (c) => {
+  const items = await probeCombos(c.env);
+  return c.json({ items });
+}));
+
+// Прогон цикла ассистента (запрос с инструментами → результат инструмента →
+// ответ). Показывает, на какой фазе провайдер отклоняет запрос.
+// Query: ?provider=dahl&model=MiniMaxAI/MiniMax-M2.7
+app.get("/api/v1/ai/providers/loop-check", guarded("admin")(async (c) => {
+  const provider = c.req.query("provider");
+  const model = c.req.query("model");
+  const items = await probeLoop(c.env, 30_000, {
+    provider: provider || undefined,
+    model: model || undefined,
+  });
+  return c.json({ items });
 }));
 
 export default {

@@ -46,13 +46,128 @@ export function providersFromEnv(env: object): LLMProvider[] {
   };
   push("vyceai", e.AI_BASE_URL, e.AI_API_KEY, e.AI_MODEL, "https://vyceai.com/v1", "deepseek-v4.1-flash");
   push("dahl", e.AI_FALLBACK_BASE_URL, e.AI_FALLBACK_API_KEY, e.AI_FALLBACK_MODEL, "https://inference.dahl.global/v1", "deepseek-ai/DeepSeek-V4-Flash-0731");
+  // Третий вариант: тот же endpoint и ключ, но другая модель. Нужен потому,
+  // что у бесплатных моделей провайдера бывает 429 model_concurrency —
+  // следующая модель на том же ключе продолжает работу.
+  if (typeof e.AI_FALLBACK_MODEL_ALT === "string" && e.AI_FALLBACK_MODEL_ALT.trim()) {
+    push("dahl-alt", e.AI_FALLBACK_BASE_URL, e.AI_FALLBACK_API_KEY, e.AI_FALLBACK_MODEL_ALT, "https://inference.dahl.global/v1", "");
+  }
   return out;
 }
 
-export const AI_TIMEOUT_MS = 25_000;
+// Таймаут одного вызова LLM. 25 с было недостаточно: фаза «ответ после данных
+// инструментов» у реальных провайдеров занимает 20-30 с, из-за чего вызов
+// обрывался по AbortError и пользователь получал офлайн-шаблон вместо ответа.
+export const AI_TIMEOUT_MS = 60_000;
+
+// timeoutMsFromEnv — таймаут вызова из переменной окружения AI_TIMEOUT_MS.
+export function timeoutMsFromEnv(env: object): number {
+  const raw = Number((env as Record<string, unknown>).AI_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 1000 ? Math.floor(raw) : AI_TIMEOUT_MS;
+}
 export const AI_MAX_TOOL_CALLS = 6;
-export const AI_MAX_HISTORY = 12;
+// История диалога: 6 сообщений ≈ 3 обмена. Больше — заметный рост prompt-токенов
+// на каждом вызове, а бюджет демо-режима общий на весь сайт.
+export const AI_MAX_HISTORY = 6;
+// Лимит ответа: 1024 токена ≈ 4 000 символов — хватает для таблиц и списков,
+// но ограничивает время генерации (иначе провайдер не успевает ответить в срок).
 export const AI_MAX_TOKENS = 1024;
+
+// Заключительная фраза «размышления» модели. Нужна для случая, когда блок
+// <think> приходит без закрывающего тега (так отвечает MiniMax M2.7 у
+// провайдера): по этой фразе понимаем, где кончились рассуждения и начался
+// ответ пользователю.
+// Границы слов заданы явно (\p{L}), а не через \b: в JavaScript \b не работает
+// с кириллицей — буква не считается «словным» символом.
+const THINK_END_MARKER =
+  /(?<![\p{L}])(?:нужно|необходимо|теперь|иттак|отвечаю|ответить|сформулирую|составляю|выдам|пользователь\s+спросил)(?![\p{L}])[^.\n]{0,120}[.!]?\s*$/iu;
+
+// Доля текста (в строках), в которой ищем заключительную фразу рассуждения.
+// Дальше этой границы ответ пользователю — иначе можно срезать «нужно»
+// из самого ответа («Вам нужно подтвердить смету»).
+const THINK_SCAN_RATIO = 0.7;
+
+// stripReasoning — убирает «мысли» моделей (<think>…</think>) из ответа.
+// reasoning-модели (например, MiniMax M2.7) возвращают их в поле content,
+// пользователю такой текст показывать не нужно.
+export function stripReasoning(content: string): string {
+  const withoutClosed = content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  const open = withoutClosed.search(/<think>/i);
+  if (open < 0) return withoutClosed;
+
+  // Блок не закрыт: ищем последнюю «заключительную» фразу рассуждения.
+  const rest = withoutClosed.slice(open + "<think>".length);
+  const lines = rest.split(/\r?\n/);
+  const limit = Math.max(1, Math.floor(lines.length * THINK_SCAN_RATIO));
+  let cut = -1;
+  for (let i = 0; i < limit; i++) {
+    const line = (lines[i] ?? "").trim();
+    if (line && THINK_END_MARKER.test(line)) cut = i;
+  }
+  if (cut >= 0) {
+    const answer = lines.slice(cut + 1).join("\n").trim();
+    if (answer) return answer;
+  }
+  // Запасной вариант: ответ начинается с markdown-заголовка.
+  const heading = lines.findIndex((line, i) => i > 0 && /^#{1,4}\s/.test(line.trim()));
+  if (heading > 0) {
+    const answer = lines.slice(heading).join("\n").trim();
+    if (answer) return answer;
+  }
+  // Ответ не распознан — не выбрасываем текст пользователя.
+  return rest.trim();
+}
+
+// cleanServiceTags — убирает служебные маркеры провайдера (<end_turn> и т.п.),
+// которые модель иногда возвращает в поле content.
+export function cleanServiceTags(content: string): string {
+  return content.replace(/<\/?end_turn>/gi, "").trim();
+}
+
+// Имена инструментов ассистента. Reasoning-модели (GLM) иногда проговаривают
+// вслух свои действия с инструментами прямо в ответе — такой текст пользователю
+// не нужен, но он же надёжный признак, что перед ответом есть «мысли».
+const TOOL_NAME_RE = /list_projects|project_overview|analyze_estimate|list_pending_approvals|search_normative|list_documents/;
+
+// Маркеры самоописания действий модели («получил данные», «нужно уточнить»…).
+const NARRATION_MARKER = /(?:получил данные|теперь нужно|нужно уточнить|могу вызвать|можно вызвать|вижу[:\s]|отлично,|понял,)/i;
+
+// stripToolNarration — убирает ход рассуждений модели, если она описала его
+// текстом (без тегов <think>). Условие строгое: в начале ответа должен
+// встречаться либо служебный маркер, либо имя инструмента — иначе обычный
+// ответ пользователя не трогаем.
+export function stripToolNarration(content: string): string {
+  const lines = content.split(/\r?\n/);
+  if (lines.length < 3) return content;
+  const limit = Math.max(1, Math.floor(lines.length * THINK_SCAN_RATIO));
+  const head = lines.slice(0, limit).join("\n");
+  if (!TOOL_NAME_RE.test(head) && !NARRATION_MARKER.test(head)) return content;
+  let cut = -1;
+  for (let i = 0; i < limit; i++) {
+    if (NARRATION_MARKER.test(lines[i] ?? "")) cut = i;
+  }
+  if (cut < 0) return content;
+  const answer = lines.slice(cut + 1).join("\n").trim();
+  return answer || content;
+}
+
+// stripProviderReasoning — часть провайдеров отдаёт рассуждения отдельным
+// полем reasoning_content (иногда продублированным в начале content).
+export function stripProviderReasoning(content: string, reasoning: string): string {
+  const r = reasoning.trim();
+  if (!r) return content;
+  if (content.startsWith(r)) return content.slice(r.length).trim();
+  return content;
+}
+
+// Параметры отключения «размышлений» модели. Единого стандарта у
+// OpenAI-совместимых провайдеров нет: пробуем с ними, а если провайдер
+// отвечает 4xx — повторяем запрос без них (провайдер не понимает поля).
+export const DISABLE_THINKING_PARAMS: Record<string, unknown> = {
+  chat_template_kwargs: { enable_thinking: false },
+  reasoning_effort: "none",
+};
+let thinkingParamsRejected = false;
 
 // TOOL_DEFS — белый список из 6 инструментов (зеркало backend/internal/ai/tools.go).
 export const TOOL_DEFS = [
@@ -150,12 +265,20 @@ export async function chatComplete(
       max_tokens: AI_MAX_TOKENS,
     };
     if (withTools) body.tools = TOOL_DEFS;
-    const res = await fetch(`${p.baseURL}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${p.apiKey}` },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
+    const send = (payload: Record<string, unknown>) =>
+      fetch(`${p.baseURL}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${p.apiKey}` },
+        body: JSON.stringify(payload),
+        signal: ctrl.signal,
+      });
+    // Сначала пробуем отключить «размышления» модели; если провайдер отвергает
+    // незнакомые поля (4xx) — повторяем запрос без них.
+    let res = await send(thinkingParamsRejected ? body : { ...body, ...DISABLE_THINKING_PARAMS });
+    if (!res.ok && res.status === 400 && !thinkingParamsRejected) {
+      thinkingParamsRejected = true;
+      res = await send(body);
+    }
     if (!res.ok) {
       const t = await res.text().catch(() => "");
       throw new Error(`provider ${p.name} http ${res.status}: ${t.slice(0, 200)}`);
@@ -174,8 +297,17 @@ export async function chatComplete(
           },
         }))
       : [];
+    const rawContent = typeof msg.content === "string" ? msg.content : "";
+    const providerReasoning =
+      typeof msg.reasoning_content === "string"
+        ? msg.reasoning_content
+        : typeof msg.reasoning === "string"
+          ? msg.reasoning
+          : "";
     return {
-      content: typeof msg.content === "string" ? msg.content : "",
+      content: cleanServiceTags(
+        stripToolNarration(stripReasoning(stripProviderReasoning(rawContent, providerReasoning))),
+      ),
       toolCalls,
       promptTokens: Number(usage.prompt_tokens ?? 0) || 0,
       completionTokens: Number(usage.completion_tokens ?? 0) || 0,
@@ -198,6 +330,8 @@ export async function completeWithFallback(
       const result = await chatComplete(p, messages, timeoutMs, withTools);
       return { result, provider: p.name };
     } catch (err) {
+      // Логируем причину: без неё отказ провайдера выглядит как «офлайн-режим».
+      console.warn(`[llm] провайдер ${p.name} недоступен:`, err instanceof Error ? err.message : String(err));
       lastErr = err;
     }
   }
@@ -218,6 +352,12 @@ export const SYSTEM_PROMPT = [
   "инструменты — так ты видишь актуальные цифры. Никогда не выдумывай суммы,",
   "даты, номера документов и нормы: если данных нет — скажи честно.",
   "Отвечай по-русски, кратко и по делу, суммы указывай в тенге (₸).",
+  "Пиши сразу ответ: внутренние рассуждения и служебные теги (<think>) не выводи.",
+  "Не описывай свои рассуждения, действия с инструментами и промежуточные мысли —",
+  "сразу дай пользователю итоговый ответ по его вопросу.",
+  "Ответ держи в пределах 200 слов: списками или короткой таблицей, без длинных вступлений.",
+  "Если нужно несколько инструментов — вызывай их в одном ответе (несколько вызовов за раз),",
+  "чтобы не тратить дополнительные шаги диалога.",
   "Можешь помогать с вопросами по работе в самой платформе (куда нажать, что где).",
   "Если вопрос совсем не про строительство и не про платформу (политика, медицина,",
   "развлечения, чужой код и т.п.) — мягко откажись и предложи вернуться к теме стройки.",
