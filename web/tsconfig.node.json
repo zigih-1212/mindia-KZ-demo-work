@@ -6,6 +6,8 @@
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "strict": true,
+    // vite.config.ts читает process.env (API_TARGET) — нужны типы Node.
+    "types": ["node"],
     // Компилируемый vite.config.js не должен попадать в корень web/:
     // vite читает vite.config.js ПЕРЕД vite.config.ts, и устаревший
     // скомпилированный конфиг молча перекрывает правки исходника.

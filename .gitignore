@@ -38,3 +38,8 @@ desktop.ini
 # --- ��������������� tsc build-��������� �������� ---
 web/vite.config.js
 web/vite.config.d.ts
+
+# --- TypeScript build cache ---
+web/*.tsbuildinfo
+edge/*.tsbuildinfo
+
