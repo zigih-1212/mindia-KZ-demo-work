@@ -103,6 +103,29 @@ describe("providersFromEnv", () => {
     const providers = providersFromEnv({ AI_FALLBACK_API_KEY: "key-2" });
     expect(providers.map((p) => p.name)).toEqual(["dahl"]);
   });
+
+  it("добавляет резервного оператора Kilo с ALT-моделью", () => {
+    const providers = providersFromEnv({
+      AI_API_KEY: "key-1",
+      AI_FALLBACK_API_KEY: "key-2",
+      AI_RESERVE_API_KEY: "key-3",
+      AI_RESERVE_MODEL: "nvidia/nemotron-3.5-lightning:free",
+      AI_RESERVE_MODEL_ALT: "kilo-auto/free",
+    });
+    expect(providers.map((p) => p.name)).toEqual(["vyceai", "dahl", "kilo", "kilo-alt"]);
+    expect(providers[2]?.model).toBe("nvidia/nemotron-3.5-lightning:free");
+    expect(providers[3]?.model).toBe("kilo-auto/free");
+    // ALT-модель резервного оператора работает через тот же endpoint и ключ.
+    expect(providers[3]?.baseURL).toBe(providers[2]?.baseURL);
+  });
+
+  it("пропускает резервного оператора без ключа", () => {
+    const providers = providersFromEnv({
+      AI_API_KEY: "key-1",
+      AI_RESERVE_MODEL: "kilo-auto/free",
+    });
+    expect(providers.map((p) => p.name)).toEqual(["vyceai"]);
+  });
 });
 
 describe("timeoutMsFromEnv", () => {

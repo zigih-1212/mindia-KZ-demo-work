@@ -14,6 +14,12 @@ export interface Env {
   AI_FALLBACK_BASE_URL?: string;
   AI_FALLBACK_API_KEY?: string;
   AI_FALLBACK_MODEL?: string;
+  AI_FALLBACK_MODEL_ALT?: string;
+  // Резервный оператор (третий в цепочке) — отдельный endpoint и ключ.
+  AI_RESERVE_BASE_URL?: string;
+  AI_RESERVE_API_KEY?: string;
+  AI_RESERVE_MODEL?: string;
+  AI_RESERVE_MODEL_ALT?: string;
   AI_TIMEOUT_MS?: string;
   AI_MAX_TOOL_CALLS?: string;
 }

@@ -52,6 +52,13 @@ export function providersFromEnv(env: object): LLMProvider[] {
   if (typeof e.AI_FALLBACK_MODEL_ALT === "string" && e.AI_FALLBACK_MODEL_ALT.trim()) {
     push("dahl-alt", e.AI_FALLBACK_BASE_URL, e.AI_FALLBACK_API_KEY, e.AI_FALLBACK_MODEL_ALT, "https://inference.dahl.global/v1", "");
   }
+  // Резервный оператор (Kilo Gateway): отдельный endpoint, ключ и бесплатные
+  // модели. Стоит последним в цепочке — включается, когда основные операторы
+  // недоступны или упираются в лимит бесплатных запросов.
+  push("kilo", e.AI_RESERVE_BASE_URL, e.AI_RESERVE_API_KEY, e.AI_RESERVE_MODEL, "https://api.kilo.ai/api/gateway", "kilo-auto/free");
+  if (typeof e.AI_RESERVE_MODEL_ALT === "string" && e.AI_RESERVE_MODEL_ALT.trim()) {
+    push("kilo-alt", e.AI_RESERVE_BASE_URL, e.AI_RESERVE_API_KEY, e.AI_RESERVE_MODEL_ALT, "https://api.kilo.ai/api/gateway", "");
+  }
   return out;
 }
 
