@@ -143,7 +143,9 @@ async function runLLM(
     totalOut += comp.completionTokens;
 
     if (comp.toolCalls.length === 0) {
-      lastContent = comp.content || "…";
+      // Пустой ответ модели не затираем: ниже сработает запасной вариант
+      // с данными инструментов, а не «…».
+      if (comp.content.trim()) lastContent = comp.content;
       break;
     }
 
@@ -168,7 +170,14 @@ async function runLLM(
   }
 
   await deps.ai.addUsage(totalIn, totalOut);
-  const reply = await appendAssistant(deps.ai, convId, lastContent || "…", "", totalIn, totalOut);
+  // Модель могла не вернуть текст (пустой content, обрыв по лимиту шагов).
+  // Показываем данные инструментов — это и полезнее, и честнее «…».
+  const finalText = lastContent.trim()
+    ? lastContent
+    : traces.length > 0
+      ? degradedAnswer(traces, "модель не вернула текстовый ответ")
+      : "Модель вернула пустой ответ. Переформулируйте вопрос или уточните детали.";
+  const reply = await appendAssistant(deps.ai, convId, finalText, "", totalIn, totalOut);
   void usedProvider; // провайдер-источник не храним в сообщении, только в логике fallback
   void actor;
   return { message: reply, sources: dedupe(sources), toolCalls: traces };

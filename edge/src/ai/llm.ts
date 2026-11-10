@@ -304,10 +304,13 @@ export async function chatComplete(
         : typeof msg.reasoning === "string"
           ? msg.reasoning
           : "";
+    const cleaned = cleanServiceTags(
+      stripToolNarration(stripReasoning(stripProviderReasoning(rawContent, providerReasoning))),
+    );
     return {
-      content: cleanServiceTags(
-        stripToolNarration(stripReasoning(stripProviderReasoning(rawContent, providerReasoning))),
-      ),
+      // Если чистка съела весь текст (модель отдала только «мысли»), возвращаем
+      // исходный ответ: пустое сообщение пользователю бесполезно.
+      content: cleaned.trim() ? cleaned : rawContent.trim(),
       toolCalls,
       promptTokens: Number(usage.prompt_tokens ?? 0) || 0,
       completionTokens: Number(usage.completion_tokens ?? 0) || 0,
@@ -358,6 +361,8 @@ export const SYSTEM_PROMPT = [
   "Ответ держи в пределах 200 слов: списками или короткой таблицей, без длинных вступлений.",
   "Если нужно несколько инструментов — вызывай их в одном ответе (несколько вызовов за раз),",
   "чтобы не тратить дополнительные шаги диалога.",
+  "Один и тот же инструмент не вызывай повторно: данные уже получены.",
+  "Когда данных достаточно — сразу дай текстовый ответ, без дополнительных вызовов.",
   "Можешь помогать с вопросами по работе в самой платформе (куда нажать, что где).",
   "Если вопрос совсем не про строительство и не про платформу (политика, медицина,",
   "развлечения, чужой код и т.п.) — мягко откажись и предложи вернуться к теме стройки.",

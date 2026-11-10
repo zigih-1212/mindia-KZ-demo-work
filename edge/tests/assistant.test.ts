@@ -176,4 +176,63 @@ describe("assistant ask()", () => {
     expect(res.toolCalls![0]!.name).toBe("project_overview");
     expect(res.message.content).toBe("Итог: объектов 5");
   });
+
+  it("пустой ответ модели — внятное сообщение вместо «…»", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse("", 10, 2)));
+    const { repo, msgs } = fakeAIRepo();
+    const res = await ask(depsWith(repo), { AI_API_KEY: "k" }, { uid: "u1" }, "", "привет");
+    expect(res.message.content).not.toBe("…");
+    expect(res.message.content.length).toBeGreaterThan(10);
+    expect(msgs.at(-1)!.content).not.toBe("…");
+  });
+
+  it("инструмент отработал, а финальный текст пуст — отдаём данные инструмента, а не «…»", async () => {
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        n++;
+        if (n === 1) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              choices: [
+                {
+                  message: {
+                    role: "assistant",
+                    content: "",
+                    tool_calls: [{ id: "t1", type: "function", function: { name: "project_overview", arguments: "{}" } }],
+                  },
+                },
+              ],
+              usage: { prompt_tokens: 20, completion_tokens: 3 },
+            }),
+            text: async () => "",
+          } as Response;
+        }
+        return jsonResponse("", 30, 4);
+      }),
+    );
+    const projectsStub = {
+      async summary() {
+        return {
+          projectsTotal: 5,
+          projectsActive: 2,
+          budgetMinor: 1,
+          spentMinor: 0,
+          budgetsByProject: [],
+          estimatesPending: 0,
+          documentsPending: 0,
+          overdueProjects: 0,
+        };
+      },
+    };
+    const { repo } = fakeAIRepo();
+    const d = depsWith(repo);
+    d.projects = projectsStub as never;
+    const res = await ask(d, { AI_API_KEY: "k" }, { uid: "u1" }, "", "дай сводку по объектам");
+    expect(res.message.content).not.toBe("…");
+    expect(res.message.content).toContain("project_overview");
+  });
 });
