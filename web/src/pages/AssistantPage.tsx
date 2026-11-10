@@ -4,6 +4,7 @@ import { api, HttpError } from "../services/api";
 import { useAsync } from "../lib/useAsync";
 import { EmptyState, PageHeader } from "../components/ui";
 import { SectionTabs, type TabDef, useTab } from "../components/Tabs";
+import { Markdown } from "../components/Markdown";
 import type { AIMessage, AIChatResult } from "../types";
 
 const SUGGESTIONS = [
@@ -207,8 +208,8 @@ function MessageBubble({ message }: { message: AIMessage }) {
   return (
     <li className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
       <div className={`h-8 w-8 shrink-0 rounded-full text-center text-sm leading-8 ${isUser ? "bg-slate-200 text-slate-600" : "bg-brand-100 text-brand-700"}`}>{isUser ? "Вы" : "AI"}</div>
-      <div className={`max-w-[80%] whitespace-pre-line rounded-2xl px-4 py-2 text-sm ${isUser ? "rounded-tr-sm bg-brand-600 text-white" : "rounded-tl-sm bg-slate-100 text-slate-800"}`}>
-        {message.content}
+      <div className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${isUser ? "whitespace-pre-line rounded-tr-sm bg-brand-600 text-white" : "rounded-tl-sm bg-slate-100 text-slate-800"}`}>
+        {isUser ? message.content : <Markdown text={message.content} />}
         {!isUser && message.tokensOut > 0 ? <div className="mt-1 text-[11px] text-slate-400">{message.tokensIn + message.tokensOut} токенов</div> : null}
       </div>
     </li>

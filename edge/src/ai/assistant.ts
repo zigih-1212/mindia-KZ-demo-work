@@ -104,6 +104,8 @@ async function runLLM(
 
   const traces: ToolCallTrace[] = [];
   const sources: string[] = [];
+  // Кэш выполненных вызовов инструментов: защита от дублирующих вызовов модели.
+  const executed = new Map<string, string>();
   let totalIn = 0;
   let totalOut = 0;
   let lastContent = "";
@@ -152,6 +154,15 @@ async function runLLM(
     // Assistant-сообщение с tool_calls + по одному tool-сообщению на вызов.
     messages.push({ role: "assistant", content: comp.content, tool_calls: comp.toolCalls });
     for (const tc of comp.toolCalls) {
+      // Повторный вызов того же инструмента с теми же аргументами не выполняем:
+      // модель иногда дублирует запрос, что тратит токены и время. Вместо вызова
+      // отдаём модели уже полученный результат.
+      const callKey = `${tc.function.name}|${tc.function.arguments}`;
+      const cached = executed.get(callKey);
+      if (cached !== undefined) {
+        messages.push({ role: "tool", tool_call_id: tc.id, name: tc.function.name, content: cached });
+        continue;
+      }
       let out: unknown;
       let errText = "";
       try {
@@ -161,6 +172,7 @@ async function runLLM(
         out = { error: errText };
       }
       const outStr = truncate(JSON.stringify(out), 800);
+      executed.set(callKey, outStr);
       traces.push({ name: tc.function.name, args: truncate(tc.function.arguments, 300), result: errText ? "" : outStr, error: errText || undefined });
       if (tc.function.name === "search_normative" && !errText) {
         for (const code of extractCodes(out)) if (!sources.includes(code)) sources.push(code);
