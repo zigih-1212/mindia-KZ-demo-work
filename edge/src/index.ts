@@ -354,6 +354,12 @@ app.get("/api/v1/estimates", authed(async (c) => {
 }));
 
 app.post("/api/v1/estimates", authed(async (c) => {
+  // Сначала проверка прав, потом валидация тела: иначе клиент без прав
+  // получает 422 вместо 403 и по ответам перебирает структуру запроса.
+  const d = deps(c);
+  const me = await actorOf(c);
+  if (!canEditEstimates(me.role)) throw ForbiddenError();
+
   const body = await readBody<Record<string, unknown>>(c);
   const projectId = str(body.projectId);
   const number = str(body.number);
@@ -362,9 +368,6 @@ app.post("/api/v1/estimates", authed(async (c) => {
   if (!number) throw ValidationError("number", "укажите номер сметы");
   if (!name) throw ValidationError("name", "укажите название сметы");
 
-  const d = deps(c);
-  const me = await actorOf(c);
-  if (!canEditEstimates(me.role)) throw ForbiddenError();
   await d.projects.mustGet(projectId); // 404, если объект не существует
   const items = normalizeItems(body.items);
   if (await d.estimates.duplicateExists(projectId, number)) throw ConflictError();
@@ -479,6 +482,11 @@ app.get("/api/v1/documents", authed(async (c) => {
 }));
 
 app.post("/api/v1/documents", authed(async (c) => {
+  // Права проверяются до валидации тела (см. POST /estimates).
+  const d = deps(c);
+  const me = await actorOf(c);
+  if (!canEditDocuments(me.role)) throw ForbiddenError();
+
   const body = await readBody<Record<string, unknown>>(c);
   const projectId = str(body.projectId);
   const type = str(body.type);
@@ -491,9 +499,6 @@ app.post("/api/v1/documents", authed(async (c) => {
   if (!title) throw ValidationError("title", "укажите название документа");
   if (amountMinor < 0) throw ValidationError("amountMinor", "сумма не может быть отрицательной");
 
-  const d = deps(c);
-  const me = await actorOf(c);
-  if (!canEditDocuments(me.role)) throw ForbiddenError();
   await d.projects.mustGet(projectId); // 404
   const created = await d.documents.create({
     projectId,
