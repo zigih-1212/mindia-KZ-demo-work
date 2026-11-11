@@ -82,7 +82,9 @@ describe("assistant ask()", () => {
       "fetch",
       vi.fn(async (url: unknown) => {
         calls.push(String(url));
-        if (String(url).includes("vyceai.com")) {
+        // Основной оператор — dahl, он идёт первым в цепочке; при его отказе
+        // подключается следующий (vyceai).
+        if (String(url).includes("dahl.global")) {
           return { ok: false, status: 500, text: async () => "boom" } as Response;
         }
         return jsonResponse("Второй провайдер на связи");
@@ -92,7 +94,8 @@ describe("assistant ask()", () => {
     const env = { AI_API_KEY: "k1", AI_FALLBACK_API_KEY: "k2" };
     const res = await ask(depsWith(repo), env, { uid: "u1" }, "", "Привет, кто на связи?");
     expect(calls.length).toBe(2);
-    expect(calls[1]).toContain("dahl.global");
+    expect(calls[0]).toContain("dahl.global");
+    expect(calls[1]).toContain("vyceai.com");
     expect(res.message.content).toBe("Второй провайдер на связи");
     expect(getUsage().tokensIn).toBe(10);
     expect(getUsage().tokensOut).toBe(5);
@@ -175,6 +178,33 @@ describe("assistant ask()", () => {
     expect(res.toolCalls!.length).toBe(1);
     expect(res.toolCalls![0]!.name).toBe("project_overview");
     expect(res.message.content).toBe("Итог: объектов 5");
+  });
+
+  it("в модель уходит очищенная история — без мыслей модели", async () => {
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (...args: unknown[]) => {
+        bodies.push(JSON.stringify(args[1] ?? {}));
+        return jsonResponse("Ответ по текущему вопросу", 10, 2);
+      }),
+    );
+    const { repo, msgs } = fakeAIRepo();
+    // Старый ответ модели с проговоренными рассуждениями (сохранён до фикса).
+    msgs.push({
+      id: "m1",
+      conversationId: "c1",
+      role: "assistant",
+      content: "Получил данные по портфелю. Теперь нужно их интерпретировать. Сейчас в работе 2 объекта.",
+      tokensIn: 0,
+      tokensOut: 0,
+      createdAt: "t",
+    });
+    await ask(depsWith(repo), { AI_API_KEY: "k" }, { uid: "u1" }, "", "Сколько объектов в работе?");
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(bodies[0]).not.toContain("Получил данные");
+    expect(bodies[0]).not.toContain("Теперь нужно");
+    expect(bodies[0]).toContain("Сейчас в работе 2 объекта");
   });
 
   it("пустой ответ модели — внятное сообщение вместо «…»", async () => {

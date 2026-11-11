@@ -74,6 +74,33 @@ describe("stripToolNarration", () => {
     const raw = ["Чтобы установить плиту, нужно:", "1. подготовить основание;", "2. уложить плиту."].join("\n");
     expect(stripToolNarration(raw)).toBe(raw);
   });
+
+  it("убирает рассуждение, когда ответ — одно предложение в том же абзаце", () => {
+    const raw = "Получил данные по портфелю. Теперь нужно их интерпретировать. Сейчас в работе **2 объекта** из 5.";
+    const out = stripToolNarration(raw);
+    expect(out).toContain("Сейчас в работе");
+    expect(out).not.toContain("Получил данные");
+    expect(out).not.toContain("Теперь нужно");
+  });
+
+  it("убирает рассуждение из нескольких предложений перед ответом", () => {
+    const raw = [
+      "Получил данные по портфелю.",
+      "Теперь нужно их интерпретировать.",
+      "Нужно уточнить, какие объекты в работе.",
+      "Могу вызвать list_projects для деталей.",
+      "Сейчас в работе **2 объекта** из 5.",
+    ].join(" ");
+    const out = stripToolNarration(raw);
+    expect(out).toContain("Сейчас в работе");
+    expect(out).not.toContain("Получил данные");
+    expect(out).not.toContain("Могу вызвать");
+  });
+
+  it("возвращает исходный текст, если после среза не осталось ответа", () => {
+    const raw = "Получил данные по портфелю. Теперь нужно их интерпретировать.";
+    expect(stripToolNarration(raw)).toBe(raw);
+  });
 });
 
 describe("stripProviderReasoning", () => {
@@ -93,10 +120,10 @@ describe("providersFromEnv", () => {
       AI_FALLBACK_API_KEY: "key-2",
       AI_FALLBACK_MODEL_ALT: "zai-org/GLM-5.3-Flash",
     });
-    expect(providers.map((p) => p.name)).toEqual(["vyceai", "dahl", "dahl-alt"]);
-    expect(providers[2]?.model).toBe("zai-org/GLM-5.3-Flash");
+    expect(providers.map((p) => p.name)).toEqual(["dahl", "dahl-alt", "vyceai"]);
+    expect(providers[1]?.model).toBe("zai-org/GLM-5.3-Flash");
     // Тот же endpoint и ключ, что и у основного fallback-провайдера.
-    expect(providers[2]?.baseURL).toBe(providers[1]?.baseURL);
+    expect(providers[1]?.baseURL).toBe(providers[0]?.baseURL);
   });
 
   it("пропускает провайдера без ключа и без ALT-модели", () => {
@@ -112,11 +139,11 @@ describe("providersFromEnv", () => {
       AI_RESERVE_MODEL: "nvidia/nemotron-3.5-lightning:free",
       AI_RESERVE_MODEL_ALT: "kilo-auto/free",
     });
-    expect(providers.map((p) => p.name)).toEqual(["vyceai", "dahl", "kilo", "kilo-alt"]);
-    expect(providers[2]?.model).toBe("nvidia/nemotron-3.5-lightning:free");
-    expect(providers[3]?.model).toBe("kilo-auto/free");
+    expect(providers.map((p) => p.name)).toEqual(["dahl", "kilo", "kilo-alt", "vyceai"]);
+    expect(providers[1]?.model).toBe("nvidia/nemotron-3.5-lightning:free");
+    expect(providers[2]?.model).toBe("kilo-auto/free");
     // ALT-модель резервного оператора работает через тот же endpoint и ключ.
-    expect(providers[3]?.baseURL).toBe(providers[2]?.baseURL);
+    expect(providers[2]?.baseURL).toBe(providers[1]?.baseURL);
   });
 
   it("пропускает резервного оператора без ключа", () => {

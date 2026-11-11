@@ -6,7 +6,7 @@
 import { Hono, type Context } from "hono";
 
 import { BUDGET_TOKENS } from "./ai/offline";
-import { ask } from "./ai/assistant";
+import { ask, sanitizeAssistantText } from "./ai/assistant";
 import { probeChat, probeCombos, probeProviders } from "./ai/diagnostics";
 import { probeLoop } from "./ai/loopprobe";
 import {
@@ -584,7 +584,13 @@ app.get("/api/v1/ai/conversations/:id/messages", authed(async (c) => {
   const d = deps(c);
   await d.ai.assertOwner(param(c, "id"), user.uid); // чужой диалог -> 403
   const items = await d.ai.listMessages(param(c, "id"), 200);
-  return c.json({ items });
+  // Старые ответы (до фикса чистки) могли содержать «мысли» модели —
+  // показываем пользователю уже очищенный текст.
+  return c.json({
+    items: items.map((m) =>
+      m.role === "assistant" ? { ...m, content: sanitizeAssistantText(m.content) } : m,
+    ),
+  });
 }));
 
 app.get("/api/v1/ai/usage", authed(async (c) => {

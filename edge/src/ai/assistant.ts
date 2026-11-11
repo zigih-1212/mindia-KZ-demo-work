@@ -6,8 +6,11 @@ import {
   AI_MAX_HISTORY,
   AI_MAX_TOOL_CALLS,
   SYSTEM_PROMPT,
+  cleanServiceTags,
   completeWithFallback,
   providersFromEnv,
+  stripReasoning,
+  stripToolNarration,
   timeoutMsFromEnv,
   type ChatMessage,
   type CompletionResult,
@@ -24,6 +27,14 @@ import { truncate } from "../lib/util";
 import type { AIChatResult, AIMessage, AIUsage, ToolCallTrace } from "../types";
 
 const MAX_MESSAGE_RUNES = 2000;
+
+// sanitizeAssistantText — убирает «мысли» модели из текста, который уходит
+// обратно в модель (история диалога) и пользователю. Reasoning-модели
+// (GLM, MiniMax) проговаривают ход рассуждения обычным текстом — без
+// служебных тегов, поэтому чистим по маркерам.
+export function sanitizeAssistantText(text: string): string {
+  return cleanServiceTags(stripToolNarration(stripReasoning(text)));
+}
 
 // ask — полный цикл ассистента: бюджет → (LLM с fallback | офлайн) → ответ.
 export async function ask(
@@ -99,7 +110,13 @@ async function runLLM(
     { role: "system", content: SYSTEM_PROMPT },
     ...history
       .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+      .map((m) => ({
+        role: m.role as "user" | "assistant",
+        // Историю чистим от «мыслей» модели: старые ответы с рассуждениями
+        // (сохранённые до фикса) учат модель повторять такой стиль.
+        content: m.role === "assistant" ? sanitizeAssistantText(m.content) : m.content,
+      }))
+      .filter((m) => m.content.trim().length > 0),
   ];
 
   const traces: ToolCallTrace[] = [];
@@ -182,13 +199,17 @@ async function runLLM(
   }
 
   await deps.ai.addUsage(totalIn, totalOut);
-  // Модель могла не вернуть текст (пустой content, обрыв по лимиту шагов).
-  // Показываем данные инструментов — это и полезнее, и честнее «…».
-  const finalText = lastContent.trim()
-    ? lastContent
+  // Модель могла не вернуть текст (пустой content, обрыв по лимиту шагов)
+  // или вернуть одни «мысли». Показываем данные инструментов — это и полезнее,
+  // и честнее «…».
+  const cleanedAnswer = lastContent.trim() ? sanitizeAssistantText(lastContent) : "";
+  const finalText = cleanedAnswer.trim()
+    ? cleanedAnswer
     : traces.length > 0
-      ? degradedAnswer(traces, "модель не вернула текстовый ответ")
-      : "Модель вернула пустой ответ. Переформулируйте вопрос или уточните детали.";
+      ? degradedAnswer(traces, "модель вернула рассуждения без ответа")
+      : lastContent.trim()
+        ? lastContent
+        : "Модель вернула пустой ответ. Переформулируйте вопрос или уточните детали.";
   const reply = await appendAssistant(deps.ai, convId, finalText, "", totalIn, totalOut);
   void usedProvider; // провайдер-источник не храним в сообщении, только в логике fallback
   void actor;

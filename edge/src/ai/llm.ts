@@ -44,7 +44,10 @@ export function providersFromEnv(env: object): LLMProvider[] {
       model: (typeof model === "string" && model.trim() ? model.trim() : defModel),
     });
   };
-  push("vyceai", e.AI_BASE_URL, e.AI_API_KEY, e.AI_MODEL, "https://vyceai.com/v1", "deepseek-v4.1-flash");
+  // Порядок цепочки — по фактической работоспособности операторов (проверено
+  // пробами /chat/completions): бесплатные модели vyceai сейчас не отвечают
+  // (400 invalid_request / 403 / 502 / 503), поэтому этот оператор последний —
+  // он подхватит запрос, если остальные откажут. Основной — dahl (GLM-5.3-Flash).
   push("dahl", e.AI_FALLBACK_BASE_URL, e.AI_FALLBACK_API_KEY, e.AI_FALLBACK_MODEL, "https://inference.dahl.global/v1", "deepseek-ai/DeepSeek-V4-Flash-0731");
   // Третий вариант: тот же endpoint и ключ, но другая модель. Нужен потому,
   // что у бесплатных моделей провайдера бывает 429 model_concurrency —
@@ -59,6 +62,7 @@ export function providersFromEnv(env: object): LLMProvider[] {
   if (typeof e.AI_RESERVE_MODEL_ALT === "string" && e.AI_RESERVE_MODEL_ALT.trim()) {
     push("kilo-alt", e.AI_RESERVE_BASE_URL, e.AI_RESERVE_API_KEY, e.AI_RESERVE_MODEL_ALT, "https://api.kilo.ai/api/gateway", "");
   }
+  push("vyceai", e.AI_BASE_URL, e.AI_API_KEY, e.AI_MODEL, "https://vyceai.com/v1", "deepseek-v4.1-flash");
   return out;
 }
 
@@ -137,18 +141,59 @@ export function cleanServiceTags(content: string): string {
 const TOOL_NAME_RE = /list_projects|project_overview|analyze_estimate|list_pending_approvals|search_normative|list_documents/;
 
 // Маркеры самоописания действий модели («получил данные», «нужно уточнить»…).
-const NARRATION_MARKER = /(?:получил данные|теперь нужно|нужно уточнить|могу вызвать|можно вызвать|вижу[:\s]|отлично,|понял,)/i;
+// Список расширен по фактическим формулировкам GLM: модель проговаривает ход
+// рассуждения каждый раз по-разному, но всегда в начале ответа.
+const NARRATION_MARKER =
+  /(?:получил данные|получил список|получил результат|данные (?:инструмента|получены)|инструмент (?:вернул|ответил)|по данным инструмента|теперь нужно|нужно уточнить|надо уточнить|стоит уточнить|сначала нужно|далее нужно|нужно проверить|мне нужно|чтобы ответить|могу вызвать|можно вызвать|следует вызвать|вижу[:\s]|отлично,|понял,|пользователь (?:спросил|задал|интересуется)|давайте (?:уточним|посмотрим|найдем|сделаем))/i;
 
 // stripToolNarration — убирает ход рассуждений модели, если она описала его
-// текстом (без тегов <think>). Условие строгое: в начале ответа должен
-// встречаться либо служебный маркер, либо имя инструмента — иначе обычный
-// ответ пользователя не трогаем.
+// текстом (без тегов <think>). Рассуждение всегда идёт в начале ответа,
+// поэтому режем «ведущую» часть, а тело ответа не трогаем.
+// Уровни: абзацы → предложения → строки (модель часто не ставит пустых строк).
 export function stripToolNarration(content: string): string {
-  const lines = content.split(/\r?\n/);
-  if (lines.length < 3) return content;
+  const text = content.trim();
+  if (!text) return content;
+
+  // 1) Абзацы: рассуждение часто отдельным абзацем, ответ — следующим.
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (paragraphs.length > 1) {
+    let start = 0;
+    while (start < paragraphs.length - 1 && NARRATION_MARKER.test(paragraphs[start] ?? "")) start++;
+    if (start > 0) {
+      const answer = paragraphs.slice(start).join("\n\n").trim();
+      if (answer) return answer;
+    }
+  }
+
+  // 2) Предложения: рассуждение и ответ могут быть в одном абзаце.
+  // Разбиение сохраняет переводы строк, чтобы не сломать markdown ответа.
+  const sentences = text.match(/[^.!?\n]+[.!?]?[ \t]*\n*/g) ?? [];
+  if (sentences.length > 1) {
+    // Окно сканирования шире трёх предложений: рассуждение нередко занимает
+    // 2–4 фразы («Получил данные…», «Теперь нужно…», «Далее уточню…»).
+    const head = sentences.slice(0, Math.min(6, sentences.length));
+    let last = -1;
+    for (let i = 0; i < head.length; i++) {
+      if (NARRATION_MARKER.test(head[i] ?? "")) last = i;
+      else if (last >= 0) break; // после рассуждения пошёл сам ответ
+    }
+    // Резать, если после рассуждения осталось хотя бы одно предложение:
+    // ответ нередко состоит из одной фразы («В работе 2 объекта»).
+    // Если после среза ничего не осталось — возвращаем исходный текст.
+    if (last >= 0 && sentences.length - last >= 2) {
+      const answer = sentences.slice(last + 1).join("").trim();
+      if (answer) return answer;
+    }
+  }
+
+  // 3) Строки: модель пишет «мысли» построчно, без пустых строк.
+  const lines = text.split(/\r?\n/);
   const limit = Math.max(1, Math.floor(lines.length * THINK_SCAN_RATIO));
-  const head = lines.slice(0, limit).join("\n");
-  if (!TOOL_NAME_RE.test(head) && !NARRATION_MARKER.test(head)) return content;
+  const headText = lines.slice(0, limit).join("\n");
+  if (!TOOL_NAME_RE.test(headText) && !NARRATION_MARKER.test(headText)) return content;
   let cut = -1;
   for (let i = 0; i < limit; i++) {
     if (NARRATION_MARKER.test(lines[i] ?? "")) cut = i;
@@ -173,8 +218,13 @@ export function stripProviderReasoning(content: string, reasoning: string): stri
 export const DISABLE_THINKING_PARAMS: Record<string, unknown> = {
   chat_template_kwargs: { enable_thinking: false },
   reasoning_effort: "none",
+  // GLM/Z.ai понимает thinking: {type:"disabled"}; часть провайдеров — нет.
+  thinking: { type: "disabled" },
 };
-let thinkingParamsRejected = false;
+// Отказ провайдера от этих полей запоминаем ПО провайдеру: глобальный флаг
+// выключил бы отключение «размышлений» у всех операторов сразу, включая
+// тех, кому оно нужно (Kilo отдаёт пустой ответ без enable_thinking=false).
+const thinkingRejected = new Map<string, boolean>();
 
 // TOOL_DEFS — белый список из 6 инструментов (зеркало backend/internal/ai/tools.go).
 export const TOOL_DEFS = [
@@ -280,10 +330,12 @@ export async function chatComplete(
         signal: ctrl.signal,
       });
     // Сначала пробуем отключить «размышления» модели; если провайдер отвергает
-    // незнакомые поля (4xx) — повторяем запрос без них.
-    let res = await send(thinkingParamsRejected ? body : { ...body, ...DISABLE_THINKING_PARAMS });
-    if (!res.ok && res.status === 400 && !thinkingParamsRejected) {
-      thinkingParamsRejected = true;
+    // незнакомые поля (4xx) — повторяем запрос без них (и больше не шлём их
+    // этому провайдеру).
+    const rejected = thinkingRejected.get(p.name) === true;
+    let res = await send(rejected ? body : { ...body, ...DISABLE_THINKING_PARAMS });
+    if (!res.ok && res.status === 400 && !rejected) {
+      thinkingRejected.set(p.name, true);
       res = await send(body);
     }
     if (!res.ok) {
@@ -338,6 +390,15 @@ export async function completeWithFallback(
   for (const p of providers) {
     try {
       const result = await chatComplete(p, messages, timeoutMs, withTools);
+      // Reasoning-модель может ответить «пустотой»: вернуть только свои
+      // размышления (их вырезает stripReasoning), без ответа и без вызова
+      // инструмента. Такой ответ пользователю бесполезен — идём к следующему
+      // оператору цепочки, вместо того чтобы отдать пустоту.
+      if (!stripReasoning(result.content).trim() && result.toolCalls.length === 0) {
+        lastErr = new Error(`provider ${p.name} вернул ответ без содержания`);
+        console.warn("[llm] провайдер", p.name, "ответил без содержания — следующий оператор");
+        continue;
+      }
       return { result, provider: p.name };
     } catch (err) {
       // Логируем причину: без неё отказ провайдера выглядит как «офлайн-режим».
