@@ -13,7 +13,9 @@ import { DocumentRepo } from "../repositories/documents";
 import { analyzeItems } from "../services/analyze";
 import type { AIMessage, AIChatResult, AIUsage, ToolCallTrace } from "../types";
 
-export const BUDGET_TOKENS = 100_000;
+// Демо-бюджет LLM на весь сайт (все пользователи). Один вопрос ≈ 5–6 тыс.
+// токенов, поэтому 250 тыс. — примерно на 40–45 полноценных диалогов.
+export const BUDGET_TOKENS = 250_000;
 
 export const limitedMessage =
   "Демо-режим ассистента закончился: исчерпан лимит токенов (100 000 входящих и исходящих суммарно на весь сайт). " +
